@@ -3,7 +3,12 @@ const ApiResponse = require('../../utils/ApiResponse');
 const config = require('../../config');
 const { generateAccessToken } = require('../../utils/jwt');
 const { hashPassword, comparePassword } = require('../../utils/password');
-const userModel = require('./user.model');
+const {
+  findUserByEmail,
+  findUserByProviderAccount,
+  findUserByIdWithContacts,
+  createUser,
+  updateUser } = require('./helper');
 
 const AUTH_PROVIDER = {
   CREDENTIALS: 'CREDENTIALS',
@@ -51,14 +56,14 @@ const signup = async (req, res) => {
     const { name, email, password } = req.body;
 
     const normalizedEmail = normalizeEmail(email);
-    const existingUser = await userModel.findUserByEmail(normalizedEmail);
+    const existingUser = await findUserByEmail(normalizedEmail);
 
     if (existingUser) {
       throw new ApiError(409, 'Email already exists');
     }
 
     const hashedPassword = await hashPassword(password);
-    const user = await userModel.createUser({
+    const user = await createUser({
       name: name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
@@ -80,7 +85,7 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     const normalizedEmail = normalizeEmail(email);
-    const user = await userModel.findUserByEmail(normalizedEmail);
+    const user = await findUserByEmail(normalizedEmail);
 
     if (!user || !user.password) {
       throw new ApiError(401, 'Invalid credentials');
@@ -119,10 +124,10 @@ const oauth = async (req, res) => {
     const authProvider = mapProvider(provider);
     const normalizedEmail = normalizeEmail(email);
 
-    const existingByProvider = await userModel.findUserByProviderAccount(authProvider, providerAccountId);
+    const existingByProvider = await findUserByProviderAccount(authProvider, providerAccountId);
 
     if (existingByProvider) {
-      const updatedUser = await userModel.updateUser(existingByProvider.id, {
+      const updatedUser = await updateUser(existingByProvider.id, {
         email: normalizedEmail,
         name: name?.trim() || existingByProvider.name,
         image: image ?? existingByProvider.image,
@@ -134,10 +139,10 @@ const oauth = async (req, res) => {
       return res.status(200).json(new ApiResponse(200, 'OAuth login successful', result));
     }
 
-    const existingByEmail = await userModel.findUserByEmail(normalizedEmail);
+    const existingByEmail = await findUserByEmail(normalizedEmail);
 
     if (existingByEmail) {
-      const updatedUser = await userModel.updateUser(existingByEmail.id, {
+      const updatedUser = await updateUser(existingByEmail.id, {
         name: name?.trim() || existingByEmail.name,
         image: image ?? existingByEmail.image,
         authProvider,
@@ -148,7 +153,7 @@ const oauth = async (req, res) => {
       return res.status(200).json(new ApiResponse(200, 'OAuth login successful', result));
     }
 
-    const createdUser = await userModel.createUser({
+    const createdUser = await createUser({
       name: name?.trim() || null,
       email: normalizedEmail,
       password: null,
@@ -168,13 +173,20 @@ const oauth = async (req, res) => {
 const me = async (req, res) => {
   try {
     const userId = req.user && req.user.id;
-    const user = await userModel.findUserById(userId);
+    const user = await findUserByIdWithContacts(userId);
 
     if (!user) {
       throw new ApiError(404, 'User not found');
     }
 
-    return res.status(200).json(new ApiResponse(200, 'Current user fetched successfully', { user: normalizedUser(user) }));
+    const { contacts, ...userWithoutContacts } = user;
+
+    return res.status(200).json(
+      new ApiResponse(200, 'Current user fetched successfully', {
+        user: normalizedUser(userWithoutContacts),
+        contacts
+      })
+    );
   } catch (err) {
     return res.status(err.status || 500).json(new ApiResponse(err.status || 500, err.message || 'Internal Server Error', null));
   }

@@ -1,4 +1,5 @@
 const prisma = require('../../config/prisma');
+const { CONTACT_SELECT } = require('../contact/helper');
 
 const USER_SELECT = {
   id: true,
@@ -37,6 +38,21 @@ const findUserById = (id) => {
   });
 };
 
+const findUserByIdWithContacts = (id) => {
+  return prisma.user.findUnique({
+    where: { id },
+    select: {
+      ...USER_SELECT,
+      contacts: {
+        orderBy: {
+          createdAt: 'desc'
+        },
+        select: CONTACT_SELECT
+      }
+    }
+  });
+};
+
 const createUser = (data) => {
   return prisma.user.create({
     data,
@@ -57,6 +73,7 @@ module.exports = {
   findUserByEmail,
   findUserByProviderAccount,
   findUserById,
+  findUserByIdWithContacts,
   createUser,
   updateUser
 };
