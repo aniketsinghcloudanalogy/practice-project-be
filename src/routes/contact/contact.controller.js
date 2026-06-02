@@ -3,9 +3,24 @@ const transporter = require('../../config/mail');
 
 const contactModel = require('./helper');
 const ApiResponse = require('../../utils/ApiResponse');
+const { verifyAccessToken } = require('../../utils/jwt');
 
 const createContact = async (req, res, next) => {
   try {
+    const authHeader = req.headers.authorization;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7).trim();
+      try {
+        const decoded = verifyAccessToken(token);
+        if (decoded && decoded.id) {
+          req.body.userId = decoded.id;
+        }
+      } catch (err) {
+        // ignore invalid token and continue as anonymous
+      }
+    }
+
     const contact = await contactModel.createContact(req.body);
 
     await transporter.sendMail({

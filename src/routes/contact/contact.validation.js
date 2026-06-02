@@ -45,11 +45,6 @@ const contactSchema = z.object({
     .trim()
     .min(10, 'Message must be at least 10 characters long')
     .max(1000, 'Message must be at most 1000 characters long'),
-
-  userId: z
-    .string()
-    .optional()
-    .nullable(),
 });
 
 const validate = (schema) => {

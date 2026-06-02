@@ -3,10 +3,10 @@ const ApiResponse = require('../../utils/ApiResponse');
 const config = require('../../config');
 const { generateAccessToken } = require('../../utils/jwt');
 const { hashPassword, comparePassword } = require('../../utils/password');
-const { USER_SELECT,
+const {
   findUserByEmail,
   findUserByProviderAccount,
-  findUserById,
+  findUserByIdWithContacts,
   createUser,
   updateUser } = require('./helper');
 
@@ -173,13 +173,20 @@ const oauth = async (req, res) => {
 const me = async (req, res) => {
   try {
     const userId = req.user && req.user.id;
-    const user = await findUserById(userId);
+    const user = await findUserByIdWithContacts(userId);
 
     if (!user) {
       throw new ApiError(404, 'User not found');
     }
 
-    return res.status(200).json(new ApiResponse(200, 'Current user fetched successfully', { user: normalizedUser(user) }));
+    const { contacts, ...userWithoutContacts } = user;
+
+    return res.status(200).json(
+      new ApiResponse(200, 'Current user fetched successfully', {
+        user: normalizedUser(userWithoutContacts),
+        contacts
+      })
+    );
   } catch (err) {
     return res.status(err.status || 500).json(new ApiResponse(err.status || 500, err.message || 'Internal Server Error', null));
   }
