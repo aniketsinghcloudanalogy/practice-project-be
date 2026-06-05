@@ -95,6 +95,10 @@ const signup = async (req, res) => {
       providerAccountId: null,
     });
 
+    if (!user.isActive) {
+      return res.status(201).json(new ApiResponse(201, 'Signup successful. Your account is pending activation by a Super Admin.', null));
+    }
+
     const result = await buildAuthResponse(user);
     return res.status(201).json(new ApiResponse(201, 'Signup successful', result));
   } catch (err) {
@@ -113,9 +117,8 @@ const login = async (req, res) => {
       throw new ApiError(401, 'Invalid credentials');
     }
 
-    // Check if admin/super_admin is active
-    if ((user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') && !user.isActive) {
-      throw new ApiError(403, 'Your account has been deactivated. Please contact the Super Admin.');
+    if (!user.isActive) {
+      throw new ApiError(403, 'Your account has been deactivated. Please contact support.');
     }
 
     const passwordMatches = await comparePassword(password, user.password);
@@ -170,6 +173,11 @@ const refresh = async (req, res) => {
       throw new ApiError(401, 'User not found');
     }
 
+    if (!user.isActive) {
+      await revokeAllRefreshTokensForUser(userId);
+      throw new ApiError(403, 'Your account has been deactivated.');
+    }
+
     await revokeRefreshToken(activeToken.token);
     const result = await buildAuthResponse(user);
 
@@ -194,6 +202,9 @@ const oauth = async (req, res) => {
     const existingByProvider = await findUserByProviderAccount(authProvider, providerAccountId);
 
     if (existingByProvider) {
+      if (!existingByProvider.isActive) {
+        throw new ApiError(403, 'Your account has been deactivated. Please contact support.');
+      }
       const updatedUser = await updateUser(existingByProvider.id, {
         email: normalizedEmail,
         name: name?.trim() || existingByProvider.name,
@@ -209,6 +220,9 @@ const oauth = async (req, res) => {
     const existingByEmail = await findUserByEmail(normalizedEmail);
 
     if (existingByEmail) {
+      if (!existingByEmail.isActive) {
+        throw new ApiError(403, 'Your account has been deactivated. Please contact support.');
+      }
       const updatedUser = await updateUser(existingByEmail.id, {
         name: name?.trim() || existingByEmail.name,
         image: image ?? existingByEmail.image,
@@ -358,6 +372,14 @@ const toggleUserActive = async (req, res) => {
     // Prevent self-deactivation
     if (userId === req.user.id && !isActive) {
       throw new ApiError(400, 'You cannot deactivate your own account');
+    }
+
+    const target = await findUserById(userId);
+    if (!target) throw new ApiError(404, 'User not found');
+
+    // Only SUPER_ADMIN can toggle ADMIN or SUPER_ADMIN accounts
+    if ((target.role === 'ADMIN' || target.role === 'SUPER_ADMIN') && req.user.role !== 'SUPER_ADMIN') {
+      throw new ApiError(403, 'Only Super Admin can activate or deactivate admin accounts');
     }
 
     const updated = await updateUserActiveStatus(userId, isActive);
