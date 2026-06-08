@@ -202,11 +202,25 @@ const deletePdfDocument = (id) => {
 const getExtractedTableByHash = (client, userId, tableHash) => {
   return client.extractedTable.findUnique({
     where: {
-      userId_tableHash: {
+      extracted_table_user_table_hash_unique: {
         userId,
         tableHash,
       },
     },
+    select: EXTRACTED_TABLE_SELECT,
+  });
+};
+
+const getExtractedTableBySchemaHash = (client, userId, schemaHash) => {
+  return client.extractedTable.findFirst({
+    where: {
+      userId,
+      schemaHash,
+    },
+    orderBy: [
+      { createdAt: 'asc' },
+      { updatedAt: 'asc' },
+    ],
     select: EXTRACTED_TABLE_SELECT,
   });
 };
@@ -691,44 +705,50 @@ const processUploadedPdf = async ({ userId, fileName, filePath, extractedText, e
     let duplicateRows = 0;
 
     for (const table of tables) {
-      const tableHash = getTableHash(table);
       const schemaHash = getTableSchemaHash(table);
       const normalizedColumns = normalizeColumns(Array.isArray(table.columns) ? table.columns : []);
+      const normalizedRows = Array.isArray(table.rows) ? table.rows.map((row) => normalizeRow(row)) : [];
 
-      const existingTable = await getExtractedTableByHash(tx, userId, tableHash);
+      const existingTable = await getExtractedTableBySchemaHash(tx, userId, schemaHash);
+      let targetTable = existingTable;
 
-      if (existingTable) {
+      if (!targetTable) {
+        const createdTable = await tx.extractedTable.create({
+          data: {
+            userId,
+            pdfDocumentId: savedPdf.id,
+            title: table.title || null,
+            tableHash: getTableHash({ title: table.title || null, columns: normalizedColumns, rows: normalizedRows }),
+            schemaHash,
+            columns: normalizedColumns,
+          },
+          select: EXTRACTED_TABLE_SELECT,
+        });
+
+        targetTable = createdTable;
+        insertedTables += 1;
+      } else {
         duplicateTables += 1;
-        continue;
       }
 
-      const createdTable = await tx.extractedTable.create({
-        data: {
-          userId,
-          pdfDocumentId: savedPdf.id,
-          title: table.title || null,
-          tableHash,
-          schemaHash,
-          columns: normalizedColumns,
-        },
-        select: EXTRACTED_TABLE_SELECT,
+      const rowCount = await tx.extractedRow.count({
+        where: { extractedTableId: targetTable.id },
       });
 
-      insertedTables += 1;
-
-      const rows = Array.isArray(table.rows)
-        ? table.rows.map((row, rowIndex) => ({
-            userId,
-            extractedTableId: createdTable.id,
-            rowHash: getRowHash(schemaHash, row),
-            rowData: row,
-            rowIndex,
-          }))
-        : [];
+      const rows = normalizedRows.map((row, rowIndex) => ({
+        userId,
+        extractedTableId: targetTable.id,
+        rowHash: getRowHash(schemaHash, row),
+        rowData: row,
+        rowIndex: rowCount + rowIndex,
+      }));
 
       const createdRows = await createManyExtractedRows(tx, rows);
       insertedRows += createdRows.count;
       duplicateRows += Math.max(rows.length - createdRows.count, 0);
+
+      await refreshExtractedTableHashes(tx, targetTable.id);
+      await syncPdfDocumentExtractedData(tx, targetTable.pdfDocumentId);
     }
 
     return {
@@ -833,4 +853,5 @@ module.exports = {
   refreshExtractedTableHashes,
   syncPdfDocumentExtractedData,
   getExtractedTableByIdForUser,
+  getExtractedTableBySchemaHash,
 };

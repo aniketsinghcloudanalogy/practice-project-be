@@ -3,7 +3,7 @@ const config = require('../config')
 
 const MAX_REQUEST_TOKENS = 11000
 const TARGET_EXTRACTION_TOKENS = 5500
-const MIN_EXTRACTION_TOKENS = 1000
+const MIN_EXTRACTION_TOKENS = 2000
 
 const getGroqErrorMessage = (error) => {
   const apiMessage =
