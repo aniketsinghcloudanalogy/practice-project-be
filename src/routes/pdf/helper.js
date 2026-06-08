@@ -771,6 +771,7 @@ const getMergedExtractedDataByUser = async (userId) => {
     ],
     select: {
       id: true,
+      pdfDocumentId: true,
       title: true,
       schemaHash: true,
       columns: true,
@@ -796,10 +797,15 @@ const getMergedExtractedDataByUser = async (userId) => {
         schemaHash: table.schemaHash,
         columns: table.columns,
         rows: [],
+        sourcePdfDocumentIds: [],
       });
     }
 
     const mergedTable = mergedTables.get(key);
+
+    if (!mergedTable.sourcePdfDocumentIds.includes(table.pdfDocumentId)) {
+      mergedTable.sourcePdfDocumentIds.push(table.pdfDocumentId);
+    }
 
     if (!mergedTable.title && table.title) {
       mergedTable.title = table.title;
