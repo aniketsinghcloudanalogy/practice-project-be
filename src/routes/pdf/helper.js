@@ -540,6 +540,18 @@ const deleteExtractedRowById = async (client, tableId, rowId) => {
   }
 
   return client.$transaction(async (tx) => {
+    const targetRow = await tx.extractedRow.findFirst({
+      where: {
+        id: rowId,
+        extractedTableId: tableId,
+      },
+      select: EXTRACTED_ROW_SELECT,
+    });
+
+    if (!targetRow) {
+      return null;
+    }
+
     const deletedRow = await tx.extractedRow.delete({
       where: { id: rowId },
       select: EXTRACTED_ROW_SELECT,
@@ -798,10 +810,15 @@ const getMergedExtractedDataByUser = async (userId) => {
         columns: table.columns,
         rows: [],
         sourcePdfDocumentIds: [],
+        sourceTableIds: [],
       });
     }
 
     const mergedTable = mergedTables.get(key);
+
+    if (!mergedTable.sourceTableIds.includes(table.id)) {
+      mergedTable.sourceTableIds.push(table.id);
+    }
 
     if (!mergedTable.sourcePdfDocumentIds.includes(table.pdfDocumentId)) {
       mergedTable.sourcePdfDocumentIds.push(table.pdfDocumentId);

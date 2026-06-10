@@ -296,6 +296,10 @@ const deletePdfTableRow = async (req, res, next) => {
 
     const deletedRow = await pdfModel.deleteExtractedRowByIdForUser(req.params.tableId, req.params.rowId);
 
+    if (!deletedRow) {
+      return next(new ApiError(404, 'Row not found'));
+    }
+
     return res.status(200).json(
       new ApiResponse(
         200,
