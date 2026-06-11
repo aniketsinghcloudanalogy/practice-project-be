@@ -39,70 +39,55 @@ model User {
   contacts        Contact[]
   userContacts    UserContact[]
   refreshTokens   RefreshToken[]
-  pdfDocuments    PdfDocument[]
   extractedTables ExtractedTable[]
-  extractedRows   ExtractedRow[]
 
   @@unique([authProvider, providerAccountId])
 }
 
-model PdfDocument {
-  id            String   @id @default(uuid())
-  userId        String
-  fileName      String
-  filePath      String
-  contentHash   String?
-  extractedText String?
-  extractedData Json?
-  isDeleted     Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  extractedTables ExtractedTable[]
-
-  @@index([userId])
-}
-
 model ExtractedTable {
-  id            String   @id @default(uuid())
-  userId        String
-  pdfDocumentId String
-  title         String?
-  tableHash     String
-  schemaHash    String
-  columns       Json
-  isDeleted     Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id     String @id @default(uuid())
+  userId String
+
+  // upload metadata
+  sourceFileName String?
+  contentHash    String?
+
+  title      String?
+  tableHash  String
+  schemaHash String
+  columns    Json
+
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  pdfDocument   PdfDocument    @relation(fields: [pdfDocumentId], references: [id], onDelete: Cascade)
   extractedRows ExtractedRow[]
 
   @@unique([userId, tableHash], name: "extracted_table_user_table_hash_unique")
   @@index([userId])
-  @@index([pdfDocumentId])
   @@index([userId, schemaHash])
+  @@index([userId, tableHash])
 }
 
 model ExtractedRow {
-  id               String   @id @default(cuid())
-  userId           String
+  id               String @id @default(cuid())
   extractedTableId String
-  rowHash          String
-  rowData          Json
-  rowIndex         Int?
-  isDeleted        Boolean  @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
 
-  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rowHash  String
+  rowData  Json
+  rowIndex Int?
+
+  isDeleted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   extractedTable ExtractedTable @relation(fields: [extractedTableId], references: [id], onDelete: Cascade)
 
   @@unique([extractedTableId, rowHash], name: "extracted_row_table_row_hash_unique")
-  @@index([userId])
   @@index([extractedTableId])
+  @@index([extractedTableId, isDeleted, rowIndex])
 }
 
 model RefreshToken {

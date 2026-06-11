@@ -22,12 +22,13 @@ router
   .get(pdfController.getMergedExtractedData);
 
 router
-  .route('/:id/tables')
+  .route('/tables')
   .get(pdfController.getPdfTables)
   .post(validateTablePayload, pdfController.createPdfTable);
 
 router
   .route('/tables/:tableId')
+  .get(pdfController.getPdf)
   .patch(validateTablePayload, pdfController.updatePdfTable)
   .put(validateTablePayload, pdfController.replacePdfTable)
   .delete(pdfController.deletePdfTable);
@@ -50,10 +51,5 @@ router
 router
   .route('/upload')
   .post(uploadPdf, validateUploadedPdf, pdfController.uploadPdf);
-
-router
-  .route('/:id')
-  .get(pdfController.getPdf)
-  .delete(pdfController.deletePdf);
 
 module.exports = router;

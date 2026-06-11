@@ -1,25 +1,14 @@
 const crypto = require('crypto');
+const { Prisma } = require('@prisma/client');
 
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 
-const PDF_DOCUMENT_SELECT = {
-  id: true,
-  userId: true,
-  fileName: true,
-  filePath: true,
-  contentHash: true,
-  extractedText: true,
-  extractedData: true,
-  isDeleted: true,
-  createdAt: true,
-  updatedAt: true,
-};
-
 const EXTRACTED_TABLE_SELECT = {
   id: true,
   userId: true,
-  pdfDocumentId: true,
+  sourceFileName: true,
+  contentHash: true,
   title: true,
   tableHash: true,
   schemaHash: true,
@@ -31,7 +20,6 @@ const EXTRACTED_TABLE_SELECT = {
 
 const EXTRACTED_ROW_SELECT = {
   id: true,
-  userId: true,
   extractedTableId: true,
   rowHash: true,
   rowData: true,
@@ -41,9 +29,7 @@ const EXTRACTED_ROW_SELECT = {
   updatedAt: true,
 };
 
-const isPlainObject = (value) => {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-};
+const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const sortObjectKeys = (value) => {
   if (Array.isArray(value)) {
@@ -62,33 +48,19 @@ const sortObjectKeys = (value) => {
     }, {});
 };
 
-const stableStringify = (value) => {
-  return JSON.stringify(sortObjectKeys(value));
-};
+const stableStringify = (value) => JSON.stringify(sortObjectKeys(value));
 
-const hashValue = (value) => {
-  return crypto.createHash('sha256').update(stableStringify(value)).digest('hex');
-};
+const hashValue = (value) => crypto.createHash('sha256').update(stableStringify(value)).digest('hex');
 
-const normalizeString = (value) => {
-  if (typeof value !== 'string') {
-    return value;
-  }
+const normalizeString = (value) => (typeof value === 'string' ? value.trim() : value);
 
-  return value.trim();
-};
+const normalizeColumn = (column = {}) => ({
+  title: normalizeString(column.title || ''),
+  key: normalizeString(column.key || ''),
+  dataType: normalizeString(column.dataType || 'string'),
+});
 
-const normalizeColumn = (column = {}) => {
-  return {
-    title: normalizeString(column.title || ''),
-    key: normalizeString(column.key || ''),
-    dataType: normalizeString(column.dataType || 'string'),
-  };
-};
-
-const normalizeRow = (row = {}) => {
-  return sortObjectKeys(row);
-};
+const normalizeRow = (row = {}) => sortObjectKeys(row);
 
 const normalizeColumns = (columns = []) => {
   return columns
@@ -100,20 +72,6 @@ const normalizeColumns = (columns = []) => {
         left.dataType.localeCompare(right.dataType)
       );
     });
-};
-
-const getColumnFieldNames = (columns = []) => {
-  return normalizeColumns(Array.isArray(columns) ? columns : []).reduce((fieldNames, column) => {
-    if (column.key) {
-      fieldNames.add(column.key);
-    }
-
-    if (column.title) {
-      fieldNames.add(column.title);
-    }
-
-    return fieldNames;
-  }, new Set());
 };
 
 const normalizeTableForHash = (table = {}) => {
@@ -145,161 +103,74 @@ const normalizeExtractionForHash = (extractedData = {}) => {
   return { tables };
 };
 
-const getExtractionContentHash = (extractedData) => {
-  return hashValue(normalizeExtractionForHash(extractedData));
-};
+const getExtractionContentHash = (extractedData) => hashValue(normalizeExtractionForHash(extractedData));
 
 const getTableSchemaHash = (table) => {
   const normalizedColumns = normalizeColumns(Array.isArray(table?.columns) ? table.columns : []);
   return hashValue({ columns: normalizedColumns });
 };
 
-const getTableHash = (table) => {
-  return hashValue(normalizeTableForHash(table));
-};
+const getTableHash = (table) => hashValue(normalizeTableForHash(table));
 
-const getRowHash = (schemaHash, row) => {
-  return hashValue({ schemaHash, row: normalizeRow(row) });
-};
-
-const createPdfDocument = (client, data) => {
-  return client.pdfDocument.create({
-    data,
-    select: PDF_DOCUMENT_SELECT,
-  });
-};
-
-const getUserPdfDocuments = (userId) => {
-  return prisma.pdfDocument.findMany({
-    where: { userId, isDeleted: false },
-    orderBy: {
-      createdAt: 'desc',
-    },
-    select: PDF_DOCUMENT_SELECT,
-  });
-};
-
-const getPdfDocumentById = (id) => {
-  return prisma.pdfDocument.findFirst({
-    where: { id, isDeleted: false },
-    select: PDF_DOCUMENT_SELECT,
-  });
-};
-
-const getPdfDocumentByContentHash = (userId, contentHash) => {
-  return prisma.pdfDocument.findFirst({
-    where: {
-      userId,
-      contentHash,
-      isDeleted: false,
-    },
-    select: PDF_DOCUMENT_SELECT,
-  });
-};
-
-const updatePdfDocument = (id, data) => {
-  const allowedData = {};
-
-  if (Object.prototype.hasOwnProperty.call(data, 'extractedData')) {
-    allowedData.extractedData = data.extractedData;
-  }
-
-  return prisma.pdfDocument.update({
-    where: { id },
-    data: allowedData,
-    select: PDF_DOCUMENT_SELECT,
-  });
-};
-
-const deletePdfDocument = (id) => {
-  return prisma.pdfDocument.update({
-    where: { id },
-    data: { isDeleted: true },
-    select: PDF_DOCUMENT_SELECT,
-  });
-};
+const getRowHash = (schemaHash, row) => hashValue({ schemaHash, row: normalizeRow(row) });
 
 const getExtractedTableByHash = (client, userId, tableHash) => {
   return client.extractedTable.findFirst({
-    where: {
-      userId,
-      tableHash,
-      isDeleted: false,
-    },
+    where: { userId, tableHash, isDeleted: false },
     select: EXTRACTED_TABLE_SELECT,
   });
 };
 
 const getExtractedTableBySchemaHash = (client, userId, schemaHash) => {
   return client.extractedTable.findFirst({
-    where: {
-      userId,
-      schemaHash,
-      isDeleted: false,
-    },
-    orderBy: [
-      { createdAt: 'asc' },
-      { updatedAt: 'asc' },
-    ],
+    where: { userId, schemaHash, isDeleted: false },
+    orderBy: [{ createdAt: 'asc' }, { updatedAt: 'asc' }],
     select: EXTRACTED_TABLE_SELECT,
   });
 };
 
-const getExtractedTableById = (client, tableId) => {
+const getExtractedTableById = (client, tableId, userId = null) => {
   return client.extractedTable.findFirst({
     where: {
       id: tableId,
       isDeleted: false,
-      pdfDocument: {
-        is: {
-          isDeleted: false,
-        },
-      },
+      ...(userId ? { userId } : {}),
     },
     select: {
       ...EXTRACTED_TABLE_SELECT,
-      pdfDocument: {
-        select: {
-          id: true,
-          userId: true,
-          isDeleted: true,
-        },
-      },
       extractedRows: {
         where: { isDeleted: false },
-        orderBy: [
-          { rowIndex: 'asc' },
-          { createdAt: 'asc' },
-        ],
+        orderBy: [{ rowIndex: 'asc' }, { createdAt: 'asc' }],
         select: EXTRACTED_ROW_SELECT,
       },
     },
   });
 };
 
-const getExtractedTablesByPdfDocumentId = (client, pdfDocumentId) => {
+const getExtractedTableOwner = (client, tableId) => {
+  return client.extractedTable.findFirst({
+    where: { id: tableId, isDeleted: false },
+    select: EXTRACTED_TABLE_SELECT,
+  });
+};
+
+const getOwnedExtractedTable = async (client, tableId, userId) => {
+  if (!tableId || !userId) {
+    return null;
+  }
+
+  return getExtractedTableById(client, tableId, userId);
+};
+
+const getExtractedTablesByUserId = (client, userId) => {
   return client.extractedTable.findMany({
-    where: {
-      pdfDocumentId,
-      isDeleted: false,
-      pdfDocument: {
-        is: {
-          isDeleted: false,
-        },
-      },
-    },
-    orderBy: [
-      { createdAt: 'asc' },
-      { updatedAt: 'asc' },
-    ],
+    where: { userId, isDeleted: false },
+    orderBy: [{ createdAt: 'asc' }, { updatedAt: 'asc' }],
     select: {
       ...EXTRACTED_TABLE_SELECT,
       extractedRows: {
         where: { isDeleted: false },
-        orderBy: [
-          { rowIndex: 'asc' },
-          { createdAt: 'asc' },
-        ],
+        orderBy: [{ rowIndex: 'asc' }, { createdAt: 'asc' }],
         select: EXTRACTED_ROW_SELECT,
       },
     },
@@ -309,47 +180,27 @@ const getExtractedTablesByPdfDocumentId = (client, pdfDocumentId) => {
 const buildTableShapeFromRecord = (tableRecord) => ({
   title: tableRecord.title || null,
   columns: tableRecord.columns,
-  rows: tableRecord.extractedRows.map((row) => row.rowData),
+  rows: Array.isArray(tableRecord.extractedRows)
+    ? tableRecord.extractedRows.map((row) => row.rowData)
+    : Array.isArray(tableRecord.rows)
+      ? tableRecord.rows.map((row) => (row && typeof row === 'object' && 'rowData' in row ? row.rowData : row))
+      : [],
 });
 
-const rebuildExtractedDataForPdfDocument = async (client, pdfDocumentId) => {
-  const tables = await getExtractedTablesByPdfDocumentId(client, pdfDocumentId);
+const refreshExtractedTableHashes = async (client, tableId, tableRecord = null) => {
+  const record = tableRecord || (await getExtractedTableById(client, tableId));
 
-  return {
-    tables: tables.map((table) => ({
-      title: table.title || null,
-      columns: table.columns,
-      rows: table.extractedRows.map((row) => row.rowData),
-    })),
-  };
-};
-
-const syncPdfDocumentExtractedData = async (client, pdfDocumentId) => {
-  const extractedData = await rebuildExtractedDataForPdfDocument(client, pdfDocumentId);
-
-  return client.pdfDocument.update({
-    where: { id: pdfDocumentId },
-    data: {
-      extractedData,
-    },
-    select: PDF_DOCUMENT_SELECT,
-  });
-};
-
-const refreshExtractedTableHashes = async (client, tableId) => {
-  const tableRecord = await getExtractedTableById(client, tableId);
-
-  if (!tableRecord) {
+  if (!record) {
     return null;
   }
 
-  const tableShape = buildTableShapeFromRecord(tableRecord);
+  const tableShape = buildTableShapeFromRecord(record);
 
   return client.extractedTable.update({
     where: { id: tableId },
     data: {
-      title: tableRecord.title || null,
-      columns: tableRecord.columns,
+      title: record.title || null,
+      columns: record.columns,
       schemaHash: getTableSchemaHash(tableShape),
       tableHash: getTableHash(tableShape),
     },
@@ -357,40 +208,44 @@ const refreshExtractedTableHashes = async (client, tableId) => {
   });
 };
 
-const getPdfTablesByPdfDocumentId = async (client, pdfDocumentId) => {
-  const tables = await getExtractedTablesByPdfDocumentId(client, pdfDocumentId);
-
-  return tables.map((table) => ({
-    id: table.id,
-    pdfDocumentId: table.pdfDocumentId,
-    title: table.title,
-    schemaHash: table.schemaHash,
-    tableHash: table.tableHash,
-    isDeleted: table.isDeleted,
-    columns: table.columns,
-    rows: table.extractedRows.map((row) => ({
-      id: row.id,
-      rowIndex: row.rowIndex,
-      rowHash: row.rowHash,
-      isDeleted: row.isDeleted,
-      ...row.rowData,
-    })),
-  }));
+const reindexExtractedRows = async (client, tableId) => {
+  await client.$executeRaw`
+    WITH ordered_rows AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          ORDER BY "rowIndex" ASC NULLS LAST, "createdAt" ASC, id ASC
+        ) - 1 AS new_row_index
+      FROM "ExtractedRow"
+      WHERE "extractedTableId" = ${tableId} AND "isDeleted" = false
+    )
+    UPDATE "ExtractedRow" AS extracted_row
+    SET "rowIndex" = ordered_rows.new_row_index
+    FROM ordered_rows
+    WHERE extracted_row.id = ordered_rows.id
+      AND extracted_row."rowIndex" IS DISTINCT FROM ordered_rows.new_row_index
+  `;
 };
 
-const createExtractedTableForPdfDocument = async (client, data) => {
-  const { userId, pdfDocumentId, title, columns = [], rows = [] } = data;
+const createManyExtractedRows = (tx, rows) => {
+  if (!rows.length) {
+    return Promise.resolve({ count: 0 });
+  }
+
+  return tx.extractedRow.createMany({ data: rows, skipDuplicates: true });
+};
+
+const createExtractedTable = async (client, data) => {
+  const { userId, title, columns = [], rows = [], sourceFileName = null, contentHash = null } = data;
   const normalizedColumns = normalizeColumns(columns);
-  const tableShape = {
-    title: title || null,
-    columns: normalizedColumns,
-    rows,
-  };
+  const normalizedRows = Array.isArray(rows) ? rows.map((row) => normalizeRow(row)) : [];
+  const tableShape = { title: title || null, columns: normalizedColumns, rows: normalizedRows };
 
   const createdTable = await client.extractedTable.create({
     data: {
       userId,
-      pdfDocumentId,
+      sourceFileName,
+      contentHash,
       title: title || null,
       tableHash: getTableHash(tableShape),
       schemaHash: getTableSchemaHash(tableShape),
@@ -399,10 +254,9 @@ const createExtractedTableForPdfDocument = async (client, data) => {
     select: EXTRACTED_TABLE_SELECT,
   });
 
-  if (rows.length > 0) {
+  if (normalizedRows.length > 0) {
     await client.extractedRow.createMany({
-      data: rows.map((row, rowIndex) => ({
-        userId,
+      data: normalizedRows.map((row, rowIndex) => ({
         extractedTableId: createdTable.id,
         rowIndex,
         rowHash: getRowHash(createdTable.schemaHash, row),
@@ -412,24 +266,19 @@ const createExtractedTableForPdfDocument = async (client, data) => {
     });
   }
 
-  await refreshExtractedTableHashes(client, createdTable.id);
-  await syncPdfDocumentExtractedData(client, pdfDocumentId);
-
   return getExtractedTableById(client, createdTable.id);
 };
 
-const updateExtractedTableById = async (client, tableId, data) => {
-  const currentTable = await getExtractedTableById(client, tableId);
+const updateExtractedTableById = async (client, tableId, data, currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
-  const nextTitle = Object.prototype.hasOwnProperty.call(data, 'title') ? data.title : currentTable.title;
-  const nextColumns = Array.isArray(data.columns) ? normalizeColumns(data.columns) : currentTable.columns;
-  const nextRows = Array.isArray(data.rows)
-    ? data.rows
-    : currentTable.extractedRows.map((row) => row.rowData);
+  const nextTitle = Object.prototype.hasOwnProperty.call(data, 'title') ? data.title : tableRecord.title;
+  const nextColumns = Array.isArray(data.columns) ? normalizeColumns(data.columns) : tableRecord.columns;
+  const nextRows = Array.isArray(data.rows) ? data.rows.map((row) => normalizeRow(row)) : null;
 
   return client.$transaction(async (tx) => {
     await tx.extractedTable.update({
@@ -452,7 +301,6 @@ const updateExtractedTableById = async (client, tableId, data) => {
 
         await tx.extractedRow.createMany({
           data: nextRows.map((row, rowIndex) => ({
-            userId: currentTable.userId,
             extractedTableId: tableId,
             rowIndex,
             rowHash: getRowHash(schemaHash, row),
@@ -463,17 +311,24 @@ const updateExtractedTableById = async (client, tableId, data) => {
       }
     }
 
-    await refreshExtractedTableHashes(tx, tableId);
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
+    await refreshExtractedTableHashes(
+      tx,
+      tableId,
+      {
+        title: nextTitle || null,
+        columns: nextColumns,
+        rows: nextRows || tableRecord.extractedRows.map((row) => row.rowData),
+      },
+    );
 
     return getExtractedTableById(tx, tableId);
   });
 };
 
-const deleteExtractedTableById = async (client, tableId) => {
-  const currentTable = await getExtractedTableById(client, tableId);
+const deleteExtractedTableById = async (client, tableId, currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
@@ -489,91 +344,64 @@ const deleteExtractedTableById = async (client, tableId) => {
       data: { isDeleted: true },
     });
 
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
-
     return deletedTable;
   });
 };
 
-const createExtractedRowByTableId = async (client, tableId, rowData) => {
-  const currentTable = await getExtractedTableById(client, tableId);
+const createExtractedRowByTableId = async (client, tableId, rowData, currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
-  const schemaHash = getTableSchemaHash({ columns: currentTable.columns });
-  const rowHash = getRowHash(schemaHash, rowData);
+  const schemaHash = getTableSchemaHash({ columns: tableRecord.columns });
+  const normalizedRow = normalizeRow(rowData);
+  const rowHash = getRowHash(schemaHash, normalizedRow);
 
   return client.$transaction(async (tx) => {
-    const existingRow = await tx.extractedRow.findFirst({
-      where: {
-        extractedTableId: tableId,
-        rowHash,
-        isDeleted: false,
-      },
-      select: EXTRACTED_ROW_SELECT,
-    });
+    const existingRow = tableRecord.extractedRows.find((row) => row.rowHash === rowHash) || null;
 
     if (existingRow) {
       return existingRow;
     }
 
-    const rowCount = await tx.extractedRow.count({
-      where: { extractedTableId: tableId, isDeleted: false },
-    });
-
     const createdRow = await tx.extractedRow.create({
       data: {
-        userId: currentTable.userId,
         extractedTableId: tableId,
-        rowIndex: rowCount,
+        rowIndex: tableRecord.extractedRows.length,
         rowHash,
-        rowData,
+        rowData: normalizedRow,
       },
       select: EXTRACTED_ROW_SELECT,
     });
 
-    await refreshExtractedTableHashes(tx, tableId);
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
+    const updatedTable = await getExtractedTableById(tx, tableId);
+    await refreshExtractedTableHashes(tx, tableId, updatedTable);
 
     return createdRow;
   });
 };
 
-const updateExtractedRowById = async (client, tableId, rowId, rowData) => {
-  const currentTable = await getExtractedTableById(client, tableId);
+const updateExtractedRowById = async (client, tableId, rowId, rowData, currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
-  const currentRow = await client.extractedRow.findFirst({
-    where: {
-      id: rowId,
-      extractedTableId: tableId,
-      isDeleted: false,
-    },
-    select: EXTRACTED_ROW_SELECT,
-  });
+  const currentRow = tableRecord.extractedRows.find((row) => row.id === rowId);
 
   if (!currentRow) {
     return null;
   }
 
-  const schemaHash = getTableSchemaHash({ columns: currentTable.columns });
-  const rowHash = getRowHash(schemaHash, rowData);
+  const schemaHash = getTableSchemaHash({ columns: tableRecord.columns });
+  const normalizedRow = normalizeRow(rowData);
+  const rowHash = getRowHash(schemaHash, normalizedRow);
 
   return client.$transaction(async (tx) => {
-    const existingRow = await tx.extractedRow.findFirst({
-      where: {
-        extractedTableId: tableId,
-        rowHash,
-        isDeleted: false,
-        NOT: { id: rowId },
-      },
-      select: EXTRACTED_ROW_SELECT,
-    });
+    const existingRow = tableRecord.extractedRows.find((row) => row.id !== rowId && row.rowHash === rowHash) || null;
 
     if (existingRow) {
       return existingRow;
@@ -583,55 +411,53 @@ const updateExtractedRowById = async (client, tableId, rowId, rowData) => {
       where: { id: rowId },
       data: {
         rowHash,
-        rowData,
+        rowData: normalizedRow,
       },
       select: EXTRACTED_ROW_SELECT,
     });
 
-    await refreshExtractedTableHashes(tx, tableId);
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
+    const updatedTable = await getExtractedTableById(tx, tableId);
+    await refreshExtractedTableHashes(tx, tableId, updatedTable);
 
     return updatedRow;
   });
 };
 
-const bulkUpdateExtractedRows = async (client, tableId, updates = []) => {
-  const currentTable = await getExtractedTableById(client, tableId);
+const bulkUpdateExtractedRows = async (client, tableId, updates = [], currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
-  const validFields = getColumnFieldNames(currentTable.columns);
+  const safeUpdates = Array.isArray(updates) ? updates : [];
 
-  if (validFields.size === 0) {
-    throw new ApiError(400, 'Table has no editable columns');
+  const normalizedUpdates = safeUpdates.filter(
+    (update) => update && typeof update.rowId === 'string' && update.rowId.trim() !== '',
+  );
+
+  if (normalizedUpdates.length === 0) {
+    const table = await getExtractedTableById(client, tableId);
+
+    return {
+      success: true,
+      updatedCount: 0,
+      table,
+    };
   }
 
   const updateByRowId = new Map();
 
-  for (const update of updates) {
+  for (const update of normalizedUpdates) {
     if (updateByRowId.has(update.rowId)) {
       throw new ApiError(400, `Duplicate update for row ${update.rowId}`);
-    }
-
-    const rowFields = Object.keys(update.rowData);
-
-    if (rowFields.length === 0) {
-      throw new ApiError(400, `rowData for row ${update.rowId} must include at least one field`);
-    }
-
-    const invalidField = rowFields.find((field) => !validFields.has(field));
-
-    if (invalidField) {
-      throw new ApiError(400, `${invalidField} is not a valid column for this table`);
     }
 
     updateByRowId.set(update.rowId, update.rowData);
   }
 
-  const schemaHash = getTableSchemaHash({ columns: currentTable.columns });
-  const rowsById = new Map(currentTable.extractedRows.map((row) => [row.id, row]));
+  const schemaHash = getTableSchemaHash({ columns: tableRecord.columns });
+  const rowsById = new Map(tableRecord.extractedRows.map((row) => [row.id, row]));
 
   for (const rowId of updateByRowId.keys()) {
     if (!rowsById.has(rowId)) {
@@ -639,7 +465,7 @@ const bulkUpdateExtractedRows = async (client, tableId, updates = []) => {
     }
   }
 
-  const nextRows = currentTable.extractedRows.map((row) => {
+  const nextRows = tableRecord.extractedRows.map((row) => {
     const rowUpdate = updateByRowId.get(row.id);
     const nextRowData = rowUpdate ? { ...row.rowData, ...rowUpdate } : row.rowData;
 
@@ -667,33 +493,24 @@ const bulkUpdateExtractedRows = async (client, tableId, updates = []) => {
   });
 
   return client.$transaction(async (tx) => {
-    await Promise.all(
-      changedRows.map((row) =>
-        tx.extractedRow.update({
-          where: { id: row.id },
-          data: {
-            rowHash: `bulk-update:${row.id}:${crypto.randomUUID()}`,
-          },
-          select: EXTRACTED_ROW_SELECT,
-        }),
-      ),
-    );
-
-    await Promise.all(
-      changedRows.map((row) =>
-        tx.extractedRow.update({
+    if (changedRows.length > 0) {
+      for (const row of changedRows) {
+        await tx.extractedRow.update({
           where: { id: row.id },
           data: {
             rowHash: row.nextRowHash,
             rowData: row.nextRowData,
           },
           select: EXTRACTED_ROW_SELECT,
-        }),
-      ),
-    );
+        });
+      }
+    }
 
-    await refreshExtractedTableHashes(tx, tableId);
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
+    await refreshExtractedTableHashes(tx, tableId, {
+      title: tableRecord.title || null,
+      columns: tableRecord.columns,
+      rows: nextRows.map((row) => (updateByRowId.has(row.id) ? row.nextRowData : row.rowData)),
+    });
 
     const table = await getExtractedTableById(tx, tableId);
 
@@ -705,22 +522,15 @@ const bulkUpdateExtractedRows = async (client, tableId, updates = []) => {
   });
 };
 
-const deleteExtractedRowById = async (client, tableId, rowId) => {
-  const currentTable = await getExtractedTableById(client, tableId);
+const deleteExtractedRowById = async (client, tableId, rowId, currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
   return client.$transaction(async (tx) => {
-    const targetRow = await tx.extractedRow.findFirst({
-      where: {
-        id: rowId,
-        extractedTableId: tableId,
-        isDeleted: false,
-      },
-      select: EXTRACTED_ROW_SELECT,
-    });
+    const targetRow = tableRecord.extractedRows.find((row) => row.id === rowId);
 
     if (!targetRow) {
       return null;
@@ -732,97 +542,59 @@ const deleteExtractedRowById = async (client, tableId, rowId) => {
       select: EXTRACTED_ROW_SELECT,
     });
 
-    const remainingRows = await tx.extractedRow.findMany({
-      where: { extractedTableId: tableId, isDeleted: false },
-      orderBy: [
-        { rowIndex: 'asc' },
-        { createdAt: 'asc' },
-      ],
-      select: EXTRACTED_ROW_SELECT,
+    await reindexExtractedRows(tx, tableId);
+    await refreshExtractedTableHashes(tx, tableId, {
+      title: tableRecord.title || null,
+      columns: tableRecord.columns,
+      rows: tableRecord.extractedRows.filter((row) => row.id !== rowId).map((row) => row.rowData),
     });
-
-    await Promise.all(
-      remainingRows.map((row, rowIndex) =>
-        tx.extractedRow.update({
-          where: { id: row.id },
-          data: { rowIndex },
-          select: EXTRACTED_ROW_SELECT,
-        }),
-      ),
-    );
-
-    await refreshExtractedTableHashes(tx, tableId);
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
 
     return deletedRow;
   });
 };
 
-const deleteExtractedRowsByIds = async (client, tableId, rowIds = []) => {
-  const currentTable = await getExtractedTableById(client, tableId);
+const deleteExtractedRowsByIds = async (client, tableId, rowIds = [], currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
-  const uniqueRowIds = [...new Set(rowIds.filter((rowId) => typeof rowId === 'string' && rowId.trim() !== ''))];
+  const safeRowIds = Array.isArray(rowIds) ? rowIds : [];
+  const uniqueRowIds = [...new Set(safeRowIds.filter((rowId) => typeof rowId === 'string' && rowId.trim() !== ''))];
 
   if (uniqueRowIds.length === 0) {
-    return null;
+    return {
+      count: 0,
+      table: await getExtractedTableById(client, tableId),
+    };
   }
 
   return client.$transaction(async (tx) => {
-    const targetRows = await tx.extractedRow.findMany({
-      where: {
-        id: {
-          in: uniqueRowIds,
-        },
-        extractedTableId: tableId,
-        isDeleted: false,
-      },
-      select: EXTRACTED_ROW_SELECT,
-      orderBy: [
-        { rowIndex: 'asc' },
-        { createdAt: 'asc' },
-      ],
-    });
+    const targetRows = tableRecord.extractedRows.filter((row) => uniqueRowIds.includes(row.id));
 
     if (targetRows.length === 0) {
-      return null;
+      return {
+        count: 0,
+        table: await getExtractedTableById(tx, tableId),
+      };
     }
 
     const deleted = await tx.extractedRow.updateMany({
       where: {
-        id: {
-          in: uniqueRowIds,
-        },
+        id: { in: uniqueRowIds },
         extractedTableId: tableId,
         isDeleted: false,
       },
       data: { isDeleted: true },
     });
 
-    const remainingRows = await tx.extractedRow.findMany({
-      where: { extractedTableId: tableId, isDeleted: false },
-      orderBy: [
-        { rowIndex: 'asc' },
-        { createdAt: 'asc' },
-      ],
-      select: EXTRACTED_ROW_SELECT,
+    await reindexExtractedRows(tx, tableId);
+    await refreshExtractedTableHashes(tx, tableId, {
+      title: tableRecord.title || null,
+      columns: tableRecord.columns,
+      rows: tableRecord.extractedRows.filter((row) => !uniqueRowIds.includes(row.id)).map((row) => row.rowData),
     });
-
-    await Promise.all(
-      remainingRows.map((row, rowIndex) =>
-        tx.extractedRow.update({
-          where: { id: row.id },
-          data: { rowIndex },
-          select: EXTRACTED_ROW_SELECT,
-        }),
-      ),
-    );
-
-    await refreshExtractedTableHashes(tx, tableId);
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
 
     return {
       count: deleted.count,
@@ -831,10 +603,10 @@ const deleteExtractedRowsByIds = async (client, tableId, rowIds = []) => {
   });
 };
 
-const clearExtractedRowsByTableId = async (client, tableId) => {
-  const currentTable = await getExtractedTableById(client, tableId);
+const clearExtractedRowsByTableId = async (client, tableId, currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
@@ -844,71 +616,23 @@ const clearExtractedRowsByTableId = async (client, tableId) => {
       data: { isDeleted: true },
     });
 
-    await refreshExtractedTableHashes(tx, tableId);
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
+    const updatedTable = await getExtractedTableById(tx, tableId);
+    await refreshExtractedTableHashes(tx, tableId, updatedTable);
 
     return deleted;
   });
 };
 
-const getPdfTablesByPdfDocumentIdForUser = async (pdfDocumentId) => {
-  return getPdfTablesByPdfDocumentId(prisma, pdfDocumentId);
-};
+const replaceExtractedTableBulk = async (client, tableId, data, currentTable = null) => {
+  const tableRecord = currentTable || (await getExtractedTableById(client, tableId));
 
-const createExtractedTableForPdfDocumentForUser = async (data) => {
-  return createExtractedTableForPdfDocument(prisma, data);
-};
-
-const getExtractedTableByIdForUser = async (tableId) => {
-  return getExtractedTableById(prisma, tableId);
-};
-
-const updateExtractedTableByIdForUser = async (tableId, data) => {
-  return updateExtractedTableById(prisma, tableId, data);
-};
-
-const replaceExtractedTableBulkForUser = async (tableId, data) => {
-  return replaceExtractedTableBulk(prisma, tableId, data);
-};
-
-const deleteExtractedTableByIdForUser = async (tableId) => {
-  return deleteExtractedTableById(prisma, tableId);
-};
-
-const createExtractedRowByTableIdForUser = async (tableId, rowData) => {
-  return createExtractedRowByTableId(prisma, tableId, rowData);
-};
-
-const updateExtractedRowByIdForUser = async (tableId, rowId, rowData) => {
-  return updateExtractedRowById(prisma, tableId, rowId, rowData);
-};
-
-const bulkUpdateExtractedRowsForUser = async (tableId, updates) => {
-  return bulkUpdateExtractedRows(prisma, tableId, updates);
-};
-
-const deleteExtractedRowByIdForUser = async (tableId, rowId) => {
-  return deleteExtractedRowById(prisma, tableId, rowId);
-};
-
-const deleteExtractedRowsByIdsForUser = async (tableId, rowIds) => {
-  return deleteExtractedRowsByIds(prisma, tableId, rowIds);
-};
-
-const clearExtractedRowsByTableIdForUser = async (tableId) => {
-  return clearExtractedRowsByTableId(prisma, tableId);
-};
-
-const replaceExtractedTableBulk = async (client, tableId, data) => {
-  const currentTable = await getExtractedTableById(client, tableId);
-
-  if (!currentTable) {
+  if (!tableRecord) {
     return null;
   }
 
-  const nextTitle = Object.prototype.hasOwnProperty.call(data, 'title') ? data.title : currentTable.title;
-  const nextColumns = Array.isArray(data.columns) ? normalizeColumns(data.columns) : currentTable.columns;
-  const nextRows = Array.isArray(data.rows) ? data.rows : [];
+  const nextTitle = Object.prototype.hasOwnProperty.call(data, 'title') ? data.title : tableRecord.title;
+  const nextColumns = Array.isArray(data.columns) ? normalizeColumns(data.columns) : tableRecord.columns;
+  const nextRows = Array.isArray(data.rows) ? data.rows.map((row) => normalizeRow(row)) : [];
 
   return client.$transaction(async (tx) => {
     await tx.extractedTable.update({
@@ -930,7 +654,6 @@ const replaceExtractedTableBulk = async (client, tableId, data) => {
 
       await tx.extractedRow.createMany({
         data: nextRows.map((row, rowIndex) => ({
-          userId: currentTable.userId,
           extractedTableId: tableId,
           rowIndex,
           rowHash: getRowHash(schemaHash, row),
@@ -940,34 +663,19 @@ const replaceExtractedTableBulk = async (client, tableId, data) => {
       });
     }
 
-    await refreshExtractedTableHashes(tx, tableId);
-    await syncPdfDocumentExtractedData(tx, currentTable.pdfDocumentId);
+    await refreshExtractedTableHashes(tx, tableId, {
+      title: nextTitle || null,
+      columns: nextColumns,
+      rows: nextRows,
+    });
 
     return getExtractedTableById(tx, tableId);
   });
 };
 
-const createManyExtractedRows = (tx, rows) => {
-  if (!rows.length) {
-    return Promise.resolve({ count: 0 });
-  }
-
-  return tx.extractedRow.createMany({
-    data: rows,
-    skipDuplicates: true,
-  });
-};
-
 const processUploadedPdf = async ({ userId, fileName, filePath, extractedText, extractedData }) => {
   return prisma.$transaction(async (tx) => {
-    const savedPdf = await createPdfDocument(tx, {
-      userId,
-      fileName,
-      filePath,
-      extractedText,
-      extractedData,
-    });
-
+    const contentHash = getExtractionContentHash(extractedData);
     const tables = Array.isArray(extractedData?.tables) ? extractedData.tables : [];
     let insertedTables = 0;
     let duplicateTables = 0;
@@ -975,27 +683,32 @@ const processUploadedPdf = async ({ userId, fileName, filePath, extractedText, e
     let duplicateRows = 0;
 
     for (const table of tables) {
-      const schemaHash = getTableSchemaHash(table);
       const normalizedColumns = normalizeColumns(Array.isArray(table.columns) ? table.columns : []);
       const normalizedRows = Array.isArray(table.rows) ? table.rows.map((row) => normalizeRow(row)) : [];
+      const schemaHash = getTableSchemaHash({ columns: normalizedColumns });
+      const tableShape = {
+        title: table.title || null,
+        columns: normalizedColumns,
+        rows: normalizedRows,
+      };
 
       const existingTable = await getExtractedTableBySchemaHash(tx, userId, schemaHash);
       let targetTable = existingTable;
 
       if (!targetTable) {
-        const createdTable = await tx.extractedTable.create({
+        targetTable = await tx.extractedTable.create({
           data: {
             userId,
-            pdfDocumentId: savedPdf.id,
+            sourceFileName: fileName,
+            contentHash,
             title: table.title || null,
-            tableHash: getTableHash({ title: table.title || null, columns: normalizedColumns, rows: normalizedRows }),
+            tableHash: getTableHash(tableShape),
             schemaHash,
             columns: normalizedColumns,
           },
           select: EXTRACTED_TABLE_SELECT,
         });
 
-        targetTable = createdTable;
         insertedTables += 1;
       } else {
         duplicateTables += 1;
@@ -1006,7 +719,6 @@ const processUploadedPdf = async ({ userId, fileName, filePath, extractedText, e
       });
 
       const rows = normalizedRows.map((row, rowIndex) => ({
-        userId,
         extractedTableId: targetTable.id,
         rowHash: getRowHash(schemaHash, row),
         rowData: row,
@@ -1016,13 +728,9 @@ const processUploadedPdf = async ({ userId, fileName, filePath, extractedText, e
       const createdRows = await createManyExtractedRows(tx, rows);
       insertedRows += createdRows.count;
       duplicateRows += Math.max(rows.length - createdRows.count, 0);
-
-      await refreshExtractedTableHashes(tx, targetTable.id);
-      await syncPdfDocumentExtractedData(tx, targetTable.pdfDocumentId);
     }
 
     return {
-      pdfDocument: savedPdf,
       tableCount: tables.length,
       insertedTables,
       duplicateTables,
@@ -1034,32 +742,17 @@ const processUploadedPdf = async ({ userId, fileName, filePath, extractedText, e
 
 const getMergedExtractedDataByUser = async (userId) => {
   const tables = await prisma.extractedTable.findMany({
-    where: {
-      userId,
-      isDeleted: false,
-      pdfDocument: {
-        is: {
-          isDeleted: false,
-        },
-      },
-    },
-    orderBy: [
-      { createdAt: 'asc' },
-      { updatedAt: 'asc' },
-    ],
+    where: { userId, isDeleted: false },
+    orderBy: [{ createdAt: 'asc' }, { updatedAt: 'asc' }],
     select: {
       id: true,
-      pdfDocumentId: true,
       title: true,
+      sourceFileName: true,
       schemaHash: true,
       columns: true,
-      createdAt: true,
       extractedRows: {
         where: { isDeleted: false },
-        orderBy: [
-          { rowIndex: 'asc' },
-          { createdAt: 'asc' },
-        ],
+        orderBy: [{ rowIndex: 'asc' }, { createdAt: 'asc' }],
         select: EXTRACTED_ROW_SELECT,
       },
     },
@@ -1068,27 +761,25 @@ const getMergedExtractedDataByUser = async (userId) => {
   const mergedTables = new Map();
 
   for (const table of tables) {
-    const key = table.schemaHash;
+    let mergedTable = mergedTables.get(table.schemaHash);
 
-    if (!mergedTables.has(key)) {
-      mergedTables.set(key, {
+    if (!mergedTable) {
+      mergedTable = {
         title: table.title,
         schemaHash: table.schemaHash,
         columns: table.columns,
         rows: [],
-        sourcePdfDocumentIds: [],
-        sourceTableIds: [],
-      });
+        sourceFileNamesSet: new Set(),
+        sourceTableIdsSet: new Set(),
+      };
+
+      mergedTables.set(table.schemaHash, mergedTable);
     }
 
-    const mergedTable = mergedTables.get(key);
+    mergedTable.sourceTableIdsSet.add(table.id);
 
-    if (!mergedTable.sourceTableIds.includes(table.id)) {
-      mergedTable.sourceTableIds.push(table.id);
-    }
-
-    if (!mergedTable.sourcePdfDocumentIds.includes(table.pdfDocumentId)) {
-      mergedTable.sourcePdfDocumentIds.push(table.pdfDocumentId);
+    if (table.sourceFileName) {
+      mergedTable.sourceFileNamesSet.add(table.sourceFileName);
     }
 
     if (!mergedTable.title && table.title) {
@@ -1099,24 +790,34 @@ const getMergedExtractedDataByUser = async (userId) => {
   }
 
   return {
-    tables: Array.from(mergedTables.values()),
+    tables: Array.from(mergedTables.values()).map(({ sourceFileNamesSet, sourceTableIdsSet, ...table }) => ({
+      ...table,
+      sourceFileNames: Array.from(sourceFileNamesSet),
+      sourceTableIds: Array.from(sourceTableIdsSet),
+    })),
   };
 };
 
+const createExtractedTableForUser = async (data) => createExtractedTable(prisma, data);
+const getExtractedTableByIdForUser = async (tableId, userId) => getExtractedTableById(prisma, tableId, userId);
+const getExtractedTableOwnerForUser = async (tableId) => getExtractedTableOwner(prisma, tableId);
+const getOwnedExtractedTableForUser = async (tableId, userId) => getOwnedExtractedTable(prisma, tableId, userId);
+const getExtractedTablesByUserIdForUser = async (userId) => getExtractedTablesByUserId(prisma, userId);
+const updateExtractedTableByIdForUser = async (tableId, userId, data, currentTable) => updateExtractedTableById(prisma, tableId, data, currentTable);
+const replaceExtractedTableBulkForUser = async (tableId, userId, data, currentTable) => replaceExtractedTableBulk(prisma, tableId, data, currentTable);
+const deleteExtractedTableByIdForUser = async (tableId, userId, currentTable) => deleteExtractedTableById(prisma, tableId, currentTable);
+const createExtractedRowByTableIdForUser = async (tableId, userId, rowData, currentTable) => createExtractedRowByTableId(prisma, tableId, rowData, currentTable);
+const updateExtractedRowByIdForUser = async (tableId, userId, rowId, rowData, currentTable) => updateExtractedRowById(prisma, tableId, rowId, rowData, currentTable);
+const bulkUpdateExtractedRowsForUser = async (tableId, userId, updates, currentTable) => bulkUpdateExtractedRows(prisma, tableId, updates, currentTable);
+const deleteExtractedRowByIdForUser = async (tableId, userId, rowId, currentTable) => deleteExtractedRowById(prisma, tableId, rowId, currentTable);
+const deleteExtractedRowsByIdsForUser = async (tableId, userId, rowIds, currentTable) => deleteExtractedRowsByIds(prisma, tableId, rowIds, currentTable);
+const clearExtractedRowsByTableIdForUser = async (tableId, userId, currentTable) => clearExtractedRowsByTableId(prisma, tableId, currentTable);
+
 module.exports = {
-  PDF_DOCUMENT_SELECT,
   EXTRACTED_TABLE_SELECT,
   EXTRACTED_ROW_SELECT,
-  createPdfDocument,
-  getUserPdfDocuments,
-  getPdfDocumentById,
-  getPdfDocumentByContentHash,
   getExtractedTableById,
-  getExtractedTablesByPdfDocumentId,
-  getPdfTablesByPdfDocumentId,
-  getPdfTablesByPdfDocumentIdForUser,
-  updatePdfDocument,
-  deletePdfDocument,
+  getExtractedTablesByUserId,
   getExtractionContentHash,
   getTableSchemaHash,
   getTableHash,
@@ -1124,8 +825,8 @@ module.exports = {
   createManyExtractedRows,
   processUploadedPdf,
   getMergedExtractedDataByUser,
-  createExtractedTableForPdfDocument,
-  createExtractedTableForPdfDocumentForUser,
+  createExtractedTable,
+  createExtractedTableForUser,
   updateExtractedTableById,
   updateExtractedTableByIdForUser,
   deleteExtractedTableById,
@@ -1145,7 +846,9 @@ module.exports = {
   replaceExtractedTableBulk,
   replaceExtractedTableBulkForUser,
   refreshExtractedTableHashes,
-  syncPdfDocumentExtractedData,
   getExtractedTableByIdForUser,
+  getOwnedExtractedTableForUser,
+  getExtractedTableOwnerForUser,
+  getExtractedTablesByUserIdForUser,
   getExtractedTableBySchemaHash,
 };

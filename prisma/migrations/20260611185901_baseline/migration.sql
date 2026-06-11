@@ -25,26 +25,11 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
-CREATE TABLE "PdfDocument" (
-    "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "fileName" TEXT NOT NULL,
-    "filePath" TEXT NOT NULL,
-    "contentHash" TEXT,
-    "extractedText" TEXT,
-    "extractedData" JSONB,
-    "isDeleted" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "PdfDocument_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "ExtractedTable" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "pdfDocumentId" TEXT NOT NULL,
+    "sourceFileName" TEXT,
+    "contentHash" TEXT,
     "title" TEXT,
     "tableHash" TEXT NOT NULL,
     "schemaHash" TEXT NOT NULL,
@@ -59,7 +44,6 @@ CREATE TABLE "ExtractedTable" (
 -- CreateTable
 CREATE TABLE "ExtractedRow" (
     "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
     "extractedTableId" TEXT NOT NULL,
     "rowHash" TEXT NOT NULL,
     "rowData" JSONB NOT NULL,
@@ -119,6 +103,37 @@ CREATE TABLE "UserContact" (
     CONSTRAINT "UserContact_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "Partner" (
+    "id" SERIAL NOT NULL,
+    "externalId" TEXT,
+    "partnerName" TEXT NOT NULL,
+    "parentPartner" TEXT,
+    "pmId" TEXT,
+    "url" TEXT,
+    "email" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Partner_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PartnerProgram" (
+    "id" SERIAL NOT NULL,
+    "partnerProgramName" TEXT NOT NULL,
+    "description" TEXT,
+    "verificationStep" BOOLEAN DEFAULT false,
+    "template" TEXT,
+    "loginTemplate" TEXT,
+    "loginScript" TEXT,
+    "partnerId" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PartnerProgram_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -126,25 +141,22 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX "User_authProvider_providerAccountId_key" ON "User"("authProvider", "providerAccountId");
 
 -- CreateIndex
-CREATE INDEX "PdfDocument_userId_idx" ON "PdfDocument"("userId");
-
--- CreateIndex
 CREATE INDEX "ExtractedTable_userId_idx" ON "ExtractedTable"("userId");
-
--- CreateIndex
-CREATE INDEX "ExtractedTable_pdfDocumentId_idx" ON "ExtractedTable"("pdfDocumentId");
 
 -- CreateIndex
 CREATE INDEX "ExtractedTable_userId_schemaHash_idx" ON "ExtractedTable"("userId", "schemaHash");
 
 -- CreateIndex
+CREATE INDEX "ExtractedTable_userId_tableHash_idx" ON "ExtractedTable"("userId", "tableHash");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ExtractedTable_userId_tableHash_key" ON "ExtractedTable"("userId", "tableHash");
 
 -- CreateIndex
-CREATE INDEX "ExtractedRow_userId_idx" ON "ExtractedRow"("userId");
+CREATE INDEX "ExtractedRow_extractedTableId_idx" ON "ExtractedRow"("extractedTableId");
 
 -- CreateIndex
-CREATE INDEX "ExtractedRow_extractedTableId_idx" ON "ExtractedRow"("extractedTableId");
+CREATE INDEX "ExtractedRow_extractedTableId_isDeleted_rowIndex_idx" ON "ExtractedRow"("extractedTableId", "isDeleted", "rowIndex");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ExtractedRow_extractedTableId_rowHash_key" ON "ExtractedRow"("extractedTableId", "rowHash");
@@ -176,17 +188,17 @@ CREATE UNIQUE INDEX "UserContact_userId_email_key" ON "UserContact"("userId", "e
 -- CreateIndex
 CREATE UNIQUE INDEX "UserContact_userId_primaryContact_key" ON "UserContact"("userId", "primaryContact");
 
--- AddForeignKey
-ALTER TABLE "PdfDocument" ADD CONSTRAINT "PdfDocument_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- CreateIndex
+CREATE UNIQUE INDEX "Partner_externalId_key" ON "Partner"("externalId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Partner_partnerName_key" ON "Partner"("partnerName");
+
+-- CreateIndex
+CREATE INDEX "PartnerProgram_partnerId_idx" ON "PartnerProgram"("partnerId");
 
 -- AddForeignKey
 ALTER TABLE "ExtractedTable" ADD CONSTRAINT "ExtractedTable_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ExtractedTable" ADD CONSTRAINT "ExtractedTable_pdfDocumentId_fkey" FOREIGN KEY ("pdfDocumentId") REFERENCES "PdfDocument"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ExtractedRow" ADD CONSTRAINT "ExtractedRow_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ExtractedRow" ADD CONSTRAINT "ExtractedRow_extractedTableId_fkey" FOREIGN KEY ("extractedTableId") REFERENCES "ExtractedTable"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -199,3 +211,6 @@ ALTER TABLE "Contact" ADD CONSTRAINT "Contact_userId_fkey" FOREIGN KEY ("userId"
 
 -- AddForeignKey
 ALTER TABLE "UserContact" ADD CONSTRAINT "UserContact_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PartnerProgram" ADD CONSTRAINT "PartnerProgram_partnerId_fkey" FOREIGN KEY ("partnerId") REFERENCES "Partner"("id") ON DELETE CASCADE ON UPDATE CASCADE;

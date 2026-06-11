@@ -1,8 +1,28 @@
 const pdfModel = require('./helper');
 const ApiError = require('../../utils/ApiError');
 const ApiResponse = require('../../utils/ApiResponse');
+const fs = require('fs');
 const { extractPdfText } = require('../../utils/pdfExtractor');
 const { extractWithGroq } = require('../../utils/groqClient');
+
+const removeLocalFile = (filePath) => {
+  if (!filePath) {
+    return;
+  }
+
+  fs.unlink(filePath, () => {});
+};
+
+const getOwnedTable = async (tableId, userId, next, notFoundMessage = 'Table not found') => {
+  const table = await pdfModel.getOwnedExtractedTableForUser(tableId, userId);
+
+  if (!table) {
+    next(new ApiError(404, notFoundMessage));
+    return null;
+  }
+
+  return table;
+};
 
 const uploadPdf = async (req, res, next) => {
   try {
@@ -82,17 +102,7 @@ const getMergedExtractedData = async (req, res, next) => {
 
 const getPdfTables = async (req, res, next) => {
   try {
-    const pdfDocument = await pdfModel.getPdfDocumentById(req.params.id);
-
-    if (!pdfDocument) {
-      return next(new ApiError(404, 'PDF not found'));
-    }
-
-    if (pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const tables = await pdfModel.getPdfTablesByPdfDocumentIdForUser(pdfDocument.id);
+    const tables = await pdfModel.getExtractedTablesByUserIdForUser(req.user.id);
 
     return res.status(200).json(
       new ApiResponse(
@@ -108,21 +118,12 @@ const getPdfTables = async (req, res, next) => {
 
 const createPdfTable = async (req, res, next) => {
   try {
-    const pdfDocument = await pdfModel.getPdfDocumentById(req.params.id);
-
-    if (!pdfDocument) {
-      return next(new ApiError(404, 'PDF not found'));
-    }
-
-    if (pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
     const { title, columns = [], rows = [] } = req.body;
 
-    const createdTable = await pdfModel.createExtractedTableForPdfDocumentForUser({
+    const createdTable = await pdfModel.createExtractedTableForUser({
       userId: req.user.id,
-      pdfDocumentId: pdfDocument.id,
+      sourceFileName: null,
+      contentHash: null,
       title,
       columns,
       rows,
@@ -142,17 +143,10 @@ const createPdfTable = async (req, res, next) => {
 
 const updatePdfTable = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const updatedTable = await pdfModel.updateExtractedTableByIdForUser(req.params.tableId, req.body);
+    const updatedTable = await pdfModel.updateExtractedTableByIdForUser(req.params.tableId, req.user.id, req.body, table);
 
     return res.status(200).json(
       new ApiResponse(
@@ -168,17 +162,10 @@ const updatePdfTable = async (req, res, next) => {
 
 const replacePdfTable = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const replacedTable = await pdfModel.replaceExtractedTableBulkForUser(req.params.tableId, req.body);
+    const replacedTable = await pdfModel.replaceExtractedTableBulkForUser(req.params.tableId, req.user.id, req.body, table);
 
     return res.status(200).json(
       new ApiResponse(
@@ -194,17 +181,10 @@ const replacePdfTable = async (req, res, next) => {
 
 const deletePdfTable = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const deletedTable = await pdfModel.deleteExtractedTableByIdForUser(req.params.tableId);
+    const deletedTable = await pdfModel.deleteExtractedTableByIdForUser(req.params.tableId, req.user.id);
 
     return res.status(200).json(
       new ApiResponse(
@@ -220,17 +200,10 @@ const deletePdfTable = async (req, res, next) => {
 
 const createPdfTableRow = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const createdRow = await pdfModel.createExtractedRowByTableIdForUser(req.params.tableId, req.body.rowData);
+    const createdRow = await pdfModel.createExtractedRowByTableIdForUser(req.params.tableId, req.user.id, req.body.rowData, table);
 
     return res.status(201).json(
       new ApiResponse(
@@ -246,17 +219,10 @@ const createPdfTableRow = async (req, res, next) => {
 
 const updatePdfTableRow = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const updatedRow = await pdfModel.updateExtractedRowByIdForUser(req.params.tableId, req.params.rowId, req.body.rowData);
+    const updatedRow = await pdfModel.updateExtractedRowByIdForUser(req.params.tableId, req.user.id, req.params.rowId, req.body.rowData, table);
 
     return res.status(200).json(
       new ApiResponse(
@@ -272,17 +238,10 @@ const updatePdfTableRow = async (req, res, next) => {
 
 const bulkUpdatePdfTableRows = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const result = await pdfModel.bulkUpdateExtractedRowsForUser(req.params.tableId, req.body.updates);
+    const result = await pdfModel.bulkUpdateExtractedRowsForUser(req.params.tableId, req.user.id, req.body.updates, table);
 
     return res.status(200).json(
       new ApiResponse(
@@ -298,21 +257,10 @@ const bulkUpdatePdfTableRows = async (req, res, next) => {
 
 const bulkDeletePdfTableRows = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const result = await pdfModel.deleteExtractedRowsByIdsForUser(req.params.tableId, req.body.rowIds);
-
-    if (!result || result.count === 0) {
-      return next(new ApiError(404, 'Rows not found'));
-    }
+    const result = await pdfModel.deleteExtractedRowsByIdsForUser(req.params.tableId, req.user.id, req.body.rowIds, table);
 
     return res.status(200).json(
       new ApiResponse(
@@ -328,17 +276,10 @@ const bulkDeletePdfTableRows = async (req, res, next) => {
 
 const deletePdfTableRow = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const deletedRow = await pdfModel.deleteExtractedRowByIdForUser(req.params.tableId, req.params.rowId);
+    const deletedRow = await pdfModel.deleteExtractedRowByIdForUser(req.params.tableId, req.user.id, req.params.rowId, table);
 
     if (!deletedRow) {
       return next(new ApiError(404, 'Row not found'));
@@ -358,17 +299,10 @@ const deletePdfTableRow = async (req, res, next) => {
 
 const clearPdfTableRows = async (req, res, next) => {
   try {
-    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+    const table = await getOwnedTable(req.params.tableId, req.user.id, next);
+    if (!table) return;
 
-    if (!table) {
-      return next(new ApiError(404, 'Table not found'));
-    }
-
-    if (table.pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const cleared = await pdfModel.clearExtractedRowsByTableIdForUser(req.params.tableId);
+    const cleared = await pdfModel.clearExtractedRowsByTableIdForUser(req.params.tableId, req.user.id, table);
 
     return res.status(200).json(
       new ApiResponse(
@@ -384,13 +318,13 @@ const clearPdfTableRows = async (req, res, next) => {
 
 const getUserPdfs = async (req, res, next) => {
   try {
-    const pdfDocuments = await pdfModel.getUserPdfDocuments(req.user.id);
+    const tables = await pdfModel.getExtractedTablesByUserIdForUser(req.user.id);
 
     return res.status(200).json(
       new ApiResponse(
         200,
         'PDFs fetched successfully',
-        pdfDocuments
+        tables
       )
     );
   } catch (error) {
@@ -400,21 +334,18 @@ const getUserPdfs = async (req, res, next) => {
 
 const getPdf = async (req, res, next) => {
   try {
-    const pdfDocument = await pdfModel.getPdfDocumentById(req.params.id);
+    const tableId = req.params.tableId || req.params.id;
+    const table = await pdfModel.getOwnedExtractedTableForUser(tableId, req.user.id);
 
-    if (!pdfDocument) {
+    if (!table) {
       return next(new ApiError(404, 'PDF not found'));
-    }
-
-    if (pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
     }
 
     return res.status(200).json(
       new ApiResponse(
         200,
         'PDF fetched successfully',
-        pdfDocument
+        table
       )
     );
   } catch (error) {
@@ -424,17 +355,14 @@ const getPdf = async (req, res, next) => {
 
 const deletePdf = async (req, res, next) => {
   try {
-    const pdfDocument = await pdfModel.getPdfDocumentById(req.params.id);
+    const tableId = req.params.tableId || req.params.id;
+    const table = await pdfModel.getOwnedExtractedTableForUser(tableId, req.user.id);
 
-    if (!pdfDocument) {
+    if (!table) {
       return next(new ApiError(404, 'PDF not found'));
     }
 
-    if (pdfDocument.userId !== req.user.id) {
-      return next(new ApiError(403, 'Forbidden'));
-    }
-
-    const deletedPdf = await pdfModel.deletePdfDocument(req.params.id);
+    const deletedPdf = await pdfModel.deleteExtractedTableByIdForUser(tableId, req.user.id);
 
     return res.status(200).json(
       new ApiResponse(
