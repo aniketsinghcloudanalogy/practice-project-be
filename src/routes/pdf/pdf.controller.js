@@ -1,16 +1,8 @@
-const fs = require('fs');
-
 const pdfModel = require('./helper');
 const ApiError = require('../../utils/ApiError');
 const ApiResponse = require('../../utils/ApiResponse');
 const { extractPdfText } = require('../../utils/pdfExtractor');
 const { extractWithGroq } = require('../../utils/groqClient');
-
-const removeLocalFile = (filePath) => {
-  if (filePath && fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
-};
 
 const uploadPdf = async (req, res, next) => {
   try {
@@ -68,10 +60,6 @@ const uploadPdf = async (req, res, next) => {
       )
     );
   } catch (error) {
-    if (req.file?.path) {
-      removeLocalFile(req.file.path);
-    }
-
     next(error);
   }
 };
@@ -282,6 +270,62 @@ const updatePdfTableRow = async (req, res, next) => {
   }
 };
 
+const bulkUpdatePdfTableRows = async (req, res, next) => {
+  try {
+    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+
+    if (!table) {
+      return next(new ApiError(404, 'Table not found'));
+    }
+
+    if (table.pdfDocument.userId !== req.user.id) {
+      return next(new ApiError(403, 'Forbidden'));
+    }
+
+    const result = await pdfModel.bulkUpdateExtractedRowsForUser(req.params.tableId, req.body.updates);
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        'Rows updated successfully',
+        result
+      )
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+const bulkDeletePdfTableRows = async (req, res, next) => {
+  try {
+    const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
+
+    if (!table) {
+      return next(new ApiError(404, 'Table not found'));
+    }
+
+    if (table.pdfDocument.userId !== req.user.id) {
+      return next(new ApiError(403, 'Forbidden'));
+    }
+
+    const result = await pdfModel.deleteExtractedRowsByIdsForUser(req.params.tableId, req.body.rowIds);
+
+    if (!result || result.count === 0) {
+      return next(new ApiError(404, 'Rows not found'));
+    }
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        'Rows deleted successfully',
+        result
+      )
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 const deletePdfTableRow = async (req, res, next) => {
   try {
     const table = await pdfModel.getExtractedTableByIdForUser(req.params.tableId);
@@ -391,7 +435,6 @@ const deletePdf = async (req, res, next) => {
     }
 
     const deletedPdf = await pdfModel.deletePdfDocument(req.params.id);
-    removeLocalFile(deletedPdf.filePath);
 
     return res.status(200).json(
       new ApiResponse(
@@ -416,6 +459,8 @@ module.exports = {
   deletePdfTable,
   createPdfTableRow,
   updatePdfTableRow,
+  bulkUpdatePdfTableRows,
+  bulkDeletePdfTableRows,
   deletePdfTableRow,
   clearPdfTableRows,
   getPdf,

@@ -7,6 +7,8 @@ const {
   validateUploadedPdf,
   validateTablePayload,
   validateRowPayload,
+  validateBulkRowPayload,
+  validateBulkDeleteRowPayload,
 } = require('./pdf/pdf.validation');
 
 router.use(protect);
@@ -34,6 +36,11 @@ router
   .route('/tables/:tableId/rows')
   .post(validateRowPayload, pdfController.createPdfTableRow)
   .delete(pdfController.clearPdfTableRows);
+
+router
+  .route('/tables/:tableId/rows/bulk')
+  .patch(validateBulkRowPayload, pdfController.bulkUpdatePdfTableRows)
+  .delete(validateBulkDeleteRowPayload, pdfController.bulkDeletePdfTableRows);
 
 router
   .route('/tables/:tableId/rows/:rowId')

@@ -54,10 +54,11 @@ model PdfDocument {
   contentHash   String?
   extractedText String?
   extractedData Json?
+  isDeleted     Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   extractedTables ExtractedTable[]
 
   @@index([userId])
@@ -71,69 +72,68 @@ model ExtractedTable {
   tableHash     String
   schemaHash    String
   columns       Json
+  isDeleted     Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  pdfDocument PdfDocument @relation(fields: [pdfDocumentId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pdfDocument   PdfDocument    @relation(fields: [pdfDocumentId], references: [id], onDelete: Cascade)
   extractedRows ExtractedRow[]
 
+  @@unique([userId, tableHash], name: "extracted_table_user_table_hash_unique")
   @@index([userId])
   @@index([pdfDocumentId])
   @@index([userId, schemaHash])
-  @@unique([userId, tableHash], name: "extracted_table_user_table_hash_unique")
 }
 
 model ExtractedRow {
-  id             String   @id @default(cuid())
-  userId         String
+  id               String   @id @default(cuid())
+  userId           String
   extractedTableId String
-  rowHash        String
-  rowData        Json
-  rowIndex       Int?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  rowHash          String
+  rowData          Json
+  rowIndex         Int?
+  isDeleted        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   extractedTable ExtractedTable @relation(fields: [extractedTableId], references: [id], onDelete: Cascade)
 
+  @@unique([extractedTableId, rowHash], name: "extracted_row_table_row_hash_unique")
   @@index([userId])
   @@index([extractedTableId])
-  @@unique([extractedTableId, rowHash], name: "extracted_row_table_row_hash_unique")
 }
 
 model RefreshToken {
-  id         String   @id @default(cuid())
-  token      String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     String
-  revoked    Boolean  @default(false)
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  token     String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Contact {
-  id               String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  firstName        String
-  lastName         String?
+  firstName String
+  lastName  String?
 
   email            String
   primaryContact   String
   secondaryContact String?
 
-  subject          String
-  message          String
+  subject String
+  message String
 
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  userId           String?
-  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([email])
   @@index([userId])
@@ -155,9 +155,42 @@ model UserContact {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
+  @@unique([userId, email], name: "user_contact_user_email_unique")
+  @@unique([userId, primaryContact], name: "user_contact_user_primary_contact_unique")
   @@index([userId])
   @@index([email])
   @@index([contactType])
-  @@unique([userId, email], name: "user_contact_user_email_unique")
-  @@unique([userId, primaryContact], name: "user_contact_user_primary_contact_unique")
+}
+
+model Partner {
+  id            Int     @id @default(autoincrement())
+  externalId    String? @unique
+  partnerName   String  @unique
+  parentPartner String?
+  pmId          String?
+  url           String?
+  email         String?
+
+  programs PartnerProgram[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PartnerProgram {
+  id                 Int      @id @default(autoincrement())
+  partnerProgramName String
+  description        String?
+  verificationStep   Boolean? @default(false)
+  template           String?
+  loginTemplate      String?
+  loginScript        String?
+
+  partnerId Int
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([partnerId])
 }

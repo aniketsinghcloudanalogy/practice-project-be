@@ -117,10 +117,73 @@ const validateRowPayload = (req, res, next) => {
   return next();
 };
 
+const validateBulkRowPayload = (req, res, next) => {
+  const body = req.body;
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return next(new ApiError(400, 'Request body is required'));
+  }
+
+  if (!Array.isArray(body.updates)) {
+    return next(new ApiError(400, 'updates must be an array'));
+  }
+
+  if (body.updates.length === 0) {
+    return next(new ApiError(400, 'updates must include at least one row'));
+  }
+
+  const invalidUpdate = body.updates.find((update) => {
+    return (
+      !update ||
+      typeof update !== 'object' ||
+      Array.isArray(update) ||
+      !Object.prototype.hasOwnProperty.call(update, 'rowId') ||
+      typeof update.rowId !== 'string' ||
+      update.rowId.trim() === '' ||
+      !Object.prototype.hasOwnProperty.call(update, 'rowData') ||
+      update.rowData === null ||
+      typeof update.rowData !== 'object' ||
+      Array.isArray(update.rowData)
+    );
+  });
+
+  if (invalidUpdate) {
+    return next(new ApiError(400, 'Each update must include rowId and rowData object'));
+  }
+
+  return next();
+};
+
+const validateBulkDeleteRowPayload = (req, res, next) => {
+  const body = req.body;
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return next(new ApiError(400, 'Request body is required'));
+  }
+
+  if (!Array.isArray(body.rowIds)) {
+    return next(new ApiError(400, 'rowIds must be an array'));
+  }
+
+  if (body.rowIds.length === 0) {
+    return next(new ApiError(400, 'rowIds must include at least one row'));
+  }
+
+  const invalidRowId = body.rowIds.find((rowId) => typeof rowId !== 'string' || rowId.trim() === '');
+
+  if (invalidRowId) {
+    return next(new ApiError(400, 'Each rowId must be a non-empty string'));
+  }
+
+  return next();
+};
+
 module.exports = {
   uploadPdf,
   validateUploadedPdf,
   validateExtractedData,
   validateTablePayload,
   validateRowPayload,
+  validateBulkRowPayload,
+  validateBulkDeleteRowPayload,
 };
