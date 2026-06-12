@@ -143,6 +143,17 @@ const validatePartnerIdParam = (req, res, next) => {
   return next();
 };
 
+const validateProgramIdParam = (req, res, next) => {
+  const id = Number(req.params.programId);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return next(new ApiError(400, 'Invalid program id'));
+  }
+
+  req.programId = id;
+  return next();
+};
+
 module.exports = {
   addPartnerSchema,
   addProgramSchema,
@@ -154,4 +165,5 @@ module.exports = {
   validateUpdatePartner: validate(updatePartnerSchema),
   validatePartnerProgramsQuery: validate(partnerProgramsQuerySchema, 'query'),
   validatePartnerIdParam,
+  validateProgramIdParam,
 };

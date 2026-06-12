@@ -33,8 +33,8 @@ const createPartner = (partnerData) => {
 };
 
 const findPartnerByPartnerName = (partnerName) => {
-  return prisma.partner.findUnique({
-    where: { partnerName },
+  return prisma.partner.findFirst({
+    where: { partnerName: { equals: partnerName, mode: 'insensitive' } },
     select: PARTNER_SELECT,
   });
 };
@@ -106,6 +106,24 @@ const countProgramsByPartnerId = (partnerId) => {
   });
 };
 
+const countAllPrograms = () => {
+  return prisma.partnerProgram.count();
+};
+
+const countPendingPrograms = () => {
+  return prisma.partnerProgram.count({
+    where: { verificationStep: false },
+  });
+};
+
+const updateProgramVerification = (id, verificationStep) => {
+  return prisma.partnerProgram.update({
+    where: { id },
+    data: { verificationStep },
+    select: PROGRAM_SELECT,
+  });
+};
+
 const findPartnerProgramsWithTotal = async (partnerId) => {
   const [programs, total] = await Promise.all([
     findProgramsByPartnerId(partnerId),
@@ -129,4 +147,7 @@ module.exports = {
   findProgramsByPartnerId,
   countProgramsByPartnerId,
   findPartnerProgramsWithTotal,
+  countAllPrograms,
+  countPendingPrograms,
+  updateProgramVerification,
 };

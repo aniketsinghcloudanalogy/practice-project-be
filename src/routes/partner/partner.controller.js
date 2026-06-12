@@ -10,6 +10,9 @@ const {
   deletePartner,
   createProgram,
   findPartnerProgramsWithTotal,
+  countAllPrograms,
+  countPendingPrograms,
+  updateProgramVerification,
 } = require('./helper');
 
 const addPartner = async (req, res, next) => {
@@ -179,6 +182,37 @@ const getPartnerPrograms = async (req, res, next) => {
   }
 };
 
+const getPartnerStats = async (req, res, next) => {
+  try {
+    const [totalPartners, totalPrograms, pending] = await Promise.all([
+      countPartners(),
+      countAllPrograms(),
+      countPendingPrograms(),
+    ]);
+
+    return res.status(200).json(
+      new ApiResponse(200, 'Partner stats fetched successfully', { totalPartners, totalPrograms, pending })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+const toggleVerificationStep = async (req, res, next) => {
+  try {
+    const programId = req.programId;
+    const { verificationStep } = req.body;
+
+    const updated = await updateProgramVerification(programId, verificationStep);
+
+    return res.status(200).json(
+      new ApiResponse(200, 'Verification step updated successfully', updated)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   addPartner,
   addProgram,
@@ -187,4 +221,6 @@ module.exports = {
   updatePartnerById,
   deletePartnerById,
   getPartnerPrograms,
+  getPartnerStats,
+  toggleVerificationStep,
 };
