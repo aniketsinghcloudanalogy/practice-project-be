@@ -82,7 +82,7 @@ model Contact {
 }
 
 model Partner {
-  id            String           @id @default(cuid())
+  id            Int              @id @default(autoincrement())
   externalId    String?
   partnerName   String           @unique
   parentPartner String?
@@ -97,7 +97,7 @@ model Partner {
 }
 
 model PartnerProgram {
-  id                 String   @id @default(cuid())
+  id                 Int      @id @default(autoincrement())
   partnerProgramName String
   description        String?
   verificationStep   Boolean  @default(false)
@@ -105,7 +105,7 @@ model PartnerProgram {
   loginTemplate      String?
   loginScript        String?
   partner            Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  partnerId          String
+  partnerId          Int
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
