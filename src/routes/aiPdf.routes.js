@@ -2,6 +2,7 @@ const router = require('express').Router();
 
 const aiPdfController = require('./aiPdf/aiPdf.controller');
 const { protect } = require('../middlewares/auth.middleware');
+<<<<<<< HEAD
 const {
 	uploadPdf,
 	validateUploadedPdf,
@@ -29,3 +30,12 @@ router
 	.put(validateUploadIdParam, validateSyncPayload, aiPdfController.syncUpload);
 
 module.exports = router;
+=======
+const { uploadPdf, validateUploadedPdf } = require('./aiPdf/aiPdf.validation');
+
+router.use(protect);
+
+router.route('/extract').post(uploadPdf, validateUploadedPdf, aiPdfController.extract);
+
+module.exports = router;
+>>>>>>> 7b4a63e (added upload api routes)
