@@ -85,8 +85,56 @@ const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
   });
 };
 
+
+// GET /pdf — all uploads for user with table count
+const getUserUploads = async (userId) => {
+  return prisma.pdfUpload.findMany({
+    where: { userId, isDeleted: false },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      fileName: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: {
+          tables: { where: { isDeleted: false } },
+        },
+      },
+    },
+  });
+};
+// GET /pdf/:uploadId — full detail with all tables + rows
+const getUploadWithTables = async (uploadId, userId) => {
+  return prisma.pdfUpload.findFirst({
+    where: { id: uploadId, userId, isDeleted: false },
+    select: {
+      id: true,
+      fileName: true,
+      userId: true,
+      createdAt: true,
+      updatedAt: true,
+      tables: {
+        where: { isDeleted: false },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          ...TABLE_SELECT,
+          rows: {          
+            where: { isDeleted: false },
+            orderBy: { rowIndex: 'asc' },
+            select: ROW_SELECT,
+          },
+        },
+      },
+    },
+  });
+};
+
+
 module.exports = {
   TABLE_SELECT,
   ROW_SELECT,
   processUploadedPdf,
+  getUserUploads,
+  getUploadWithTables,
 };

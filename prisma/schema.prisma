@@ -6,6 +6,211 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id                String           @id @default(cuid())
+  name              String?
+  email             String           @unique
+  password          String?
+  image             String?
+  role              UserRole         @default(USER)
+  isAdmin           Boolean          @default(false)
+  isActive          Boolean          @default(true)
+  authProvider      AuthProvider     @default(CREDENTIALS)
+  providerAccountId String?
+  organizationName  String?
+  organizationId    String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  contacts          Contact[]
+  extractedTables   ExtractedTable[]
+  pdfTables         PdfTable[]
+  pdfUploads        PdfUpload[]
+  refreshTokens     RefreshToken[]
+  organization      Organization?    @relation(fields: [organizationId], references: [id])
+  userContacts      UserContact[]
+
+  @@unique([authProvider, providerAccountId])
+  @@index([organizationId])
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  domain    String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+
+  @@index([name])
+}
+
+model ExtractedTable {
+  id             String         @id @default(uuid())
+  userId         String
+  sourceFileName String?
+  contentHash    String?
+  title          String?
+  tableHash      String
+  schemaHash     String
+  columns        Json
+  isDeleted      Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  extractedRows  ExtractedRow[]
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tableHash], name: "extracted_table_user_table_hash_unique")
+  @@index([userId])
+  @@index([userId, schemaHash])
+  @@index([userId, tableHash])
+}
+
+model ExtractedRow {
+  id               String         @id @default(cuid())
+  extractedTableId String
+  rowHash          String
+  rowData          Json
+  rowIndex         Int?
+  isDeleted        Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  extractedTable   ExtractedTable @relation(fields: [extractedTableId], references: [id], onDelete: Cascade)
+
+  @@unique([extractedTableId, rowHash], name: "extracted_row_table_row_hash_unique")
+  @@index([extractedTableId])
+  @@index([extractedTableId, isDeleted, rowIndex])
+}
+
+model PdfUpload {
+  id        String     @id @default(cuid())
+  userId    String
+  fileName  String
+  isDeleted Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  tables    PdfTable[]
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isDeleted])
+}
+
+model PdfTable {
+  id          String        @id @default(cuid())
+  pdfUploadId String
+  userId      String
+  title       String?
+  columns     Json
+  isDeleted   Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  pdfUpload   PdfUpload     @relation(fields: [pdfUploadId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows        PdfTableRow[]
+
+  @@index([pdfUploadId])
+  @@index([userId])
+  @@index([isDeleted])
+}
+
+model PdfTableRow {
+  id         String   @id @default(cuid())
+  pdfTableId String
+  rowData    Json
+  rowIndex   Int?
+  isDeleted  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  table      PdfTable @relation(fields: [pdfTableId], references: [id], onDelete: Cascade)
+
+  @@index([pdfTableId])
+  @@index([isDeleted])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Contact {
+  id               String   @id @default(cuid())
+  firstName        String
+  lastName         String?
+  email            String
+  primaryContact   String
+  secondaryContact String?
+  subject          String
+  message          String
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User?    @relation(fields: [userId], references: [id])
+
+  @@index([email])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Partner {
+  id            Int              @id @default(autoincrement())
+  externalId    String?
+  partnerName   String           @unique
+  parentPartner String?
+  pmId          String?
+  url           String?
+  email         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  programs      PartnerProgram[]
+
+  @@index([partnerName])
+}
+
+model PartnerProgram {
+  id                 Int      @id @default(autoincrement())
+  partnerProgramName String
+  description        String?
+  verificationStep   Boolean  @default(false)
+  template           String?
+  loginTemplate      String?
+  loginScript        String?
+  partnerId          Int
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  partner            Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+}
+
+model UserContact {
+  id               String      @id @default(cuid())
+  firstName        String
+  lastName         String?
+  email            String
+  primaryContact   String
+  secondaryContact String?
+  company          String?
+  notes            String?
+  contactType      ContactType @default(PRIMARY)
+  userId           String
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email], name: "user_contact_user_email_unique")
+  @@unique([userId, primaryContact], name: "user_contact_user_primary_contact_unique")
+  @@index([userId])
+  @@index([email])
+  @@index([contactType])
+}
+
 enum UserRole {
   USER
   ADMIN
@@ -21,227 +226,4 @@ enum AuthProvider {
 enum ContactType {
   PRIMARY
   SECONDARY
-}
-
-model User {
-  id                String       @id @default(cuid())
-  name              String?
-  email             String       @unique
-  password          String?
-  image             String?
-  role              UserRole     @default(USER)
-  isAdmin           Boolean      @default(false)
-  isActive          Boolean      @default(true)
-  authProvider      AuthProvider @default(CREDENTIALS)
-  providerAccountId String?
-  organizationName  String?
-  organizationId    String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
-
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  contacts       Contact[]
-  userContacts   UserContact[]
-  refreshTokens  RefreshToken[]
-  extractedTables ExtractedTable[]
-  pdfUploads     PdfUpload[]
-  pdfTables      PdfTable[]
-
-  @@unique([authProvider, providerAccountId])
-  @@index([organizationId])
-}
-
-model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  domain    String   @unique
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users User[]
-
-  @@index([name])
-}
-
-model ExtractedTable {
-  id     String @id @default(uuid())
-  userId String
-
-  // upload metadata
-  sourceFileName String?
-  contentHash    String?
-
-  title      String?
-  tableHash  String
-  schemaHash String
-  columns    Json
-
-  isDeleted Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  extractedRows ExtractedRow[]
-
-  @@unique([userId, tableHash], name: "extracted_table_user_table_hash_unique")
-  @@index([userId])
-  @@index([userId, schemaHash])
-  @@index([userId, tableHash])
-}
-
-model ExtractedRow {
-  id               String @id @default(cuid())
-  extractedTableId String
-
-  rowHash  String
-  rowData  Json
-  rowIndex Int?
-
-  isDeleted Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  extractedTable ExtractedTable @relation(fields: [extractedTableId], references: [id], onDelete: Cascade)
-
-  @@unique([extractedTableId, rowHash], name: "extracted_row_table_row_hash_unique")
-  @@index([extractedTableId])
-  @@index([extractedTableId, isDeleted, rowIndex])
-}
-
-model PdfUpload {
-  id        String   @id @default(cuid())
-  userId    String
-  fileName  String
-  isDeleted Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tables PdfTable[]
-
-  @@index([userId])
-  @@index([isDeleted])
-}
-
-model PdfTable {
-  id          String   @id @default(cuid())
-  pdfUploadId String
-  userId      String
-  title       String?
-  columns     Json
-  isDeleted   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  pdfUpload PdfUpload      @relation(fields: [pdfUploadId], references: [id], onDelete: Cascade)
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rows      PdfTableRow[]
-
-  @@index([pdfUploadId])
-  @@index([userId])
-  @@index([isDeleted])
-}
-model PdfTableRow {
-  id        String   @id @default(cuid())
-  pdfTableId String
-  rowData   Json
-  rowIndex  Int?
-  isDeleted Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  table PdfTable @relation(fields: [pdfTableId], references: [id], onDelete: Cascade)
-
-  @@index([pdfTableId])
-  @@index([isDeleted])
-}
-
-model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  revoked   Boolean  @default(false)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Contact {
-  id String @id @default(cuid())
-
-  firstName String
-  lastName  String?
-
-  email            String
-  primaryContact   String
-  secondaryContact String?
-
-  subject String
-  message String
-
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([email])
-  @@index([userId])
-  @@index([createdAt])
-}
-
-model Partner {
-  id            Int              @id @default(autoincrement())
-  externalId    String?
-  partnerName   String           @unique
-  parentPartner String?
-  pmId          String?
-  url           String?
-  email         String?
-  programs      PartnerProgram[]
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-
-  @@index([partnerName])
-}
-
-model PartnerProgram {
-  id                 Int      @id @default(autoincrement())
-  partnerProgramName String
-  description        String?
-  verificationStep   Boolean  @default(false)
-  template           String?
-  loginTemplate      String?
-  loginScript        String?
-  partner            Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  partnerId          Int
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  @@index([partnerId])
-}
-
-model UserContact {
-  id               String      @id @default(cuid())
-  firstName        String
-  lastName         String?
-  email            String
-  primaryContact   String
-  secondaryContact String?
-  company          String?
-  notes            String?
-  contactType      ContactType @default(PRIMARY)
-  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId           String
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-
-  @@unique([userId, email], name: "user_contact_user_email_unique")
-  @@unique([userId, primaryContact], name: "user_contact_user_primary_contact_unique")
-  @@index([userId])
-  @@index([email])
-  @@index([contactType])
 }
