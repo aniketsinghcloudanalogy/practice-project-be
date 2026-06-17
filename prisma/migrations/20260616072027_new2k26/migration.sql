@@ -15,13 +15,59 @@ CREATE TABLE "User" (
     "password" TEXT,
     "image" TEXT,
     "role" "UserRole" NOT NULL DEFAULT 'USER',
+    "isAdmin" BOOLEAN NOT NULL DEFAULT false,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "authProvider" "AuthProvider" NOT NULL DEFAULT 'CREDENTIALS',
     "providerAccountId" TEXT,
+    "organizationName" TEXT,
+    "organizationId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Organization" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "domain" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Organization_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ExtractedTable" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "sourceFileName" TEXT,
+    "contentHash" TEXT,
+    "title" TEXT,
+    "tableHash" TEXT NOT NULL,
+    "schemaHash" TEXT NOT NULL,
+    "columns" JSONB NOT NULL,
+    "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ExtractedTable_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ExtractedRow" (
+    "id" TEXT NOT NULL,
+    "extractedTableId" TEXT NOT NULL,
+    "rowHash" TEXT NOT NULL,
+    "rowData" JSONB NOT NULL,
+    "rowIndex" INTEGER,
+    "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ExtractedRow_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -56,7 +102,7 @@ CREATE TABLE "Contact" (
 
 -- CreateTable
 CREATE TABLE "Partner" (
-    "id" TEXT NOT NULL,
+    "id" SERIAL NOT NULL,
     "externalId" TEXT,
     "partnerName" TEXT NOT NULL,
     "parentPartner" TEXT,
@@ -71,14 +117,14 @@ CREATE TABLE "Partner" (
 
 -- CreateTable
 CREATE TABLE "PartnerProgram" (
-    "id" TEXT NOT NULL,
+    "id" SERIAL NOT NULL,
     "partnerProgramName" TEXT NOT NULL,
     "description" TEXT,
     "verificationStep" BOOLEAN NOT NULL DEFAULT false,
     "template" TEXT,
     "loginTemplate" TEXT,
     "loginScript" TEXT,
-    "partnerId" TEXT NOT NULL,
+    "partnerId" INTEGER NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -107,7 +153,37 @@ CREATE TABLE "UserContact" (
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
+CREATE INDEX "User_organizationId_idx" ON "User"("organizationId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "User_authProvider_providerAccountId_key" ON "User"("authProvider", "providerAccountId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Organization_domain_key" ON "Organization"("domain");
+
+-- CreateIndex
+CREATE INDEX "Organization_name_idx" ON "Organization"("name");
+
+-- CreateIndex
+CREATE INDEX "ExtractedTable_userId_idx" ON "ExtractedTable"("userId");
+
+-- CreateIndex
+CREATE INDEX "ExtractedTable_userId_schemaHash_idx" ON "ExtractedTable"("userId", "schemaHash");
+
+-- CreateIndex
+CREATE INDEX "ExtractedTable_userId_tableHash_idx" ON "ExtractedTable"("userId", "tableHash");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ExtractedTable_userId_tableHash_key" ON "ExtractedTable"("userId", "tableHash");
+
+-- CreateIndex
+CREATE INDEX "ExtractedRow_extractedTableId_idx" ON "ExtractedRow"("extractedTableId");
+
+-- CreateIndex
+CREATE INDEX "ExtractedRow_extractedTableId_isDeleted_rowIndex_idx" ON "ExtractedRow"("extractedTableId", "isDeleted", "rowIndex");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ExtractedRow_extractedTableId_rowHash_key" ON "ExtractedRow"("extractedTableId", "rowHash");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RefreshToken_token_key" ON "RefreshToken"("token");
@@ -144,6 +220,15 @@ CREATE UNIQUE INDEX "UserContact_userId_email_key" ON "UserContact"("userId", "e
 
 -- CreateIndex
 CREATE UNIQUE INDEX "UserContact_userId_primaryContact_key" ON "UserContact"("userId", "primaryContact");
+
+-- AddForeignKey
+ALTER TABLE "User" ADD CONSTRAINT "User_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExtractedTable" ADD CONSTRAINT "ExtractedTable_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExtractedRow" ADD CONSTRAINT "ExtractedRow_extractedTableId_fkey" FOREIGN KEY ("extractedTableId") REFERENCES "ExtractedTable"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "RefreshToken" ADD CONSTRAINT "RefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

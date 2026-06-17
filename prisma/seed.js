@@ -24,6 +24,7 @@ async function main() {
       email,
       password,
       role: 'SUPER_ADMIN',
+      isAdmin: true,
       isActive: true,
       authProvider: 'CREDENTIALS',
     },

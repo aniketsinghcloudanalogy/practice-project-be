@@ -12,7 +12,7 @@ const {
   findUserById,
   findUserByIdWithContacts,
   findUserContactsByUserId,
-  createUser,
+  createUserWithResolvedAccess,
   updateUser,
   createRefreshToken,
   findActiveRefreshTokenByUserId,
@@ -51,7 +51,14 @@ const buildAuthResponse = async (user, oldToken = null) => {
 
   return {
     user: safeUser,
-    token: generateAccessToken({ id: safeUser.id, email: safeUser.email, role: safeUser.role }),
+    token: generateAccessToken({
+      id: safeUser.id,
+      email: safeUser.email,
+      role: safeUser.role,
+      isAdmin: safeUser.isAdmin,
+      organizationId: safeUser.organizationId,
+      organizationName: safeUser.organizationName,
+    }),
   };
 };
 
@@ -84,24 +91,17 @@ const signup = async (req, res) => {
 
     const hashedPassword = await hashPassword(password);
 
-    // Check if email domain is maildrop.cc to assign ADMIN role
-    const emailDomain = normalizedEmail.split('@')[1];
-    const role = emailDomain === 'maildrop.cc' ? 'ADMIN' : 'USER';
-    const isActive = role === 'ADMIN' ? false : true; // Admin accounts are inactive by default
-
-    const user = await createUser({
+    const user = await createUserWithResolvedAccess({
       name: name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
       image: null,
-      role,
-      isActive,
       authProvider: AUTH_PROVIDER.CREDENTIALS,
       providerAccountId: null,
     });
 
     if (!user.isActive) {
-      return res.status(201).json(new ApiResponse(201, 'Signup successful. Your account is pending activation by a Super Admin.', null));
+      return res.status(201).json(new ApiResponse(201, 'Signup successful. Your admin account is pending activation.', null));
     }
 
     const result = await buildAuthResponse(user);
@@ -215,7 +215,6 @@ const oauth = async (req, res) => {
         email: normalizedEmail,
         name: name?.trim() || existingByProvider.name,
         image: image ?? existingByProvider.image,
-        isActive: true,
         authProvider,
         providerAccountId,
       });
@@ -233,7 +232,6 @@ const oauth = async (req, res) => {
       const updatedUser = await updateUser(existingByEmail.id, {
         name: name?.trim() || existingByEmail.name,
         image: image ?? existingByEmail.image,
-        isActive: true,
         authProvider,
         providerAccountId,
       });
@@ -242,16 +240,18 @@ const oauth = async (req, res) => {
       return res.status(200).json(new ApiResponse(200, 'OAuth login successful', result));
     }
 
-    const createdUser = await createUser({
+    const createdUser = await createUserWithResolvedAccess({
       name: name?.trim() || null,
       email: normalizedEmail,
       password: null,
       image: image ?? null,
-      role: 'USER',
-      isActive: true,
       authProvider,
       providerAccountId,
     });
+
+    if (!createdUser.isActive) {
+      throw new ApiError(403, 'Your admin account is pending activation.');
+    }
 
     const result = await buildAuthResponse(createdUser);
     return res.status(200).json(new ApiResponse(200, 'OAuth login successful', result));

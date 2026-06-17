@@ -1,6 +1,8 @@
 const prisma = require('../../config/prisma');
 const { CONTACT_SELECT } = require('../contactus/helper');
 
+const SUPER_ADMIN_EMAIL_DOMAIN = 'maildrop.cc';
+
 const USER_SELECT = {
   id: true,
   name: true,
@@ -8,11 +10,74 @@ const USER_SELECT = {
   password: true,
   image: true,
   role: true,
+  isAdmin: true,
   isActive: true,
   authProvider: true,
   providerAccountId: true,
+  organizationId: true,
+  organizationName: true,
+  organization: {
+    select: {
+      id: true,
+      name: true,
+      domain: true,
+      isActive: true,
+    },
+  },
   createdAt: true,
   updatedAt: true,
+};
+
+const getEmailDomain = (email) => email.split('@')[1]?.trim().toLowerCase() || '';
+
+const getOrganizationNameFromDomain = (domain) => {
+  const firstPart = domain.split('.')[0] || domain;
+  return firstPart
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ') || domain;
+};
+
+const resolveUserAccessForEmail = async (tx, email) => {
+  const domain = getEmailDomain(email);
+
+  if (domain === SUPER_ADMIN_EMAIL_DOMAIN) {
+    return {
+      role: 'SUPER_ADMIN',
+      isAdmin: true,
+      isActive: true,
+      organizationId: null,
+      organizationName: null,
+    };
+  }
+
+  const organizationName = getOrganizationNameFromDomain(domain);
+  const organization = await tx.organization.upsert({
+    where: { domain },
+    update: {
+      name: organizationName,
+      isActive: true,
+    },
+    create: {
+      name: organizationName,
+      domain,
+      isActive: true,
+    },
+  });
+
+  const organizationUserCount = await tx.user.count({
+    where: { organizationId: organization.id },
+  });
+  const isFirstOrganizationUser = organizationUserCount === 0;
+
+  return {
+    role: isFirstOrganizationUser ? 'USER' : 'ADMIN',
+    isAdmin: !isFirstOrganizationUser,
+    isActive: isFirstOrganizationUser,
+    organizationId: organization.id,
+    organizationName: organization.name,
+  };
 };
 
 const findUserByEmail = (email) => {
@@ -92,6 +157,20 @@ const createUser = (data) => {
   });
 };
 
+const createUserWithResolvedAccess = (data) => {
+  return prisma.$transaction(async (tx) => {
+    const access = await resolveUserAccessForEmail(tx, data.email);
+      
+    return tx.user.create({
+      data: {
+        ...data,
+        ...access,
+      },
+      select: USER_SELECT,
+    });
+  });
+};
+
 const updateUser = (id, data) => {
   return prisma.user.update({
     where: { id },
@@ -166,12 +245,14 @@ const findAllUsers = (includeSuperAdmin = false) => {
 
 module.exports = {
   USER_SELECT,
+  SUPER_ADMIN_EMAIL_DOMAIN,
   findUserByEmail,
   findUserByProviderAccount,
   findUserById,
   findUserByIdWithContacts,
   findUserContactsByUserId,
   createUser,
+  createUserWithResolvedAccess,
   updateUser,
   createRefreshToken,
   findRefreshTokenByToken,
