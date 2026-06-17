@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 const { TABLE_SELECT,
   ROW_SELECT,
   processUploadedPdf,
@@ -6,9 +5,6 @@ const { TABLE_SELECT,
   getUploadWithTables,
   syncUploadTables,
   softDeleteUploadById } = require('./helper');
-=======
-const aiPdfModel = require('./helper');
->>>>>>> 7b4a63e (added upload api routes)
 const ApiError = require('../../utils/ApiError');
 const ApiResponse = require('../../utils/ApiResponse');
 const fs = require('fs');
@@ -46,11 +42,7 @@ const extract = async (req, res, next) => {
       return next(new ApiError(502, message));
     }
 
-<<<<<<< HEAD
     const result = await processUploadedPdf({
-=======
-    const result = await aiPdfModel.processUploadedPdf({
->>>>>>> 7b4a63e (added upload api routes)
       userId,
       fileName: file.originalname,
       extractedData,
@@ -67,16 +59,11 @@ const extract = async (req, res, next) => {
     next(error);
   } finally {
     if (filePath) {
-<<<<<<< HEAD
       fs.unlink(filePath, () => { });
-=======
-      fs.unlink(filePath, () => {});
->>>>>>> 7b4a63e (added upload api routes)
     }
   }
 };
 
-<<<<<<< HEAD
 // GET /pdf
 const getUploads = async (req, res, next) => {
   try {
@@ -149,16 +136,10 @@ const deleteUpload = async (req, res, next) => {
   }
 };
 
-
 module.exports = {
   extract,
   getUploads,
   getUploadDetail,
   syncUpload,
   deleteUpload,
-=======
-module.exports = {
-  extract,
->>>>>>> 7b4a63e (added upload api routes)
 };
-
