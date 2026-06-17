@@ -20,9 +20,9 @@ router.get('/health', (req, res) => {
 router.use('/users', userRoutes);
 router.use('/contact', contactusRoutes);
 router.use('/contacts', contactsRoutes);
-router.use('/pdf', pdfRoutes);
+
 router.use('/pdfs', pdfRoutes);
-router.use('/ai-pdf', aiPdfRoutes);
+router.use('/aipdf', aiPdfRoutes);
 router.use('/partners', partnerRoutes);
 router.use('/forms', formsRoutes);
 router.use('/customers', customerRoutes);

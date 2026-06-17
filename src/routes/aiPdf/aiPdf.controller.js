@@ -1,4 +1,8 @@
-const aiPdfModel = require('./helper');
+const { TABLE_SELECT,
+  ROW_SELECT,
+  processUploadedPdf,
+  getUserUploads,
+  getUploadWithTables } = require('./helper');
 const ApiError = require('../../utils/ApiError');
 const ApiResponse = require('../../utils/ApiResponse');
 const fs = require('fs');
@@ -36,7 +40,7 @@ const extract = async (req, res, next) => {
       return next(new ApiError(502, message));
     }
 
-    const result = await aiPdfModel.processUploadedPdf({
+    const result = await processUploadedPdf({
       userId,
       fileName: file.originalname,
       extractedData,
@@ -53,12 +57,50 @@ const extract = async (req, res, next) => {
     next(error);
   } finally {
     if (filePath) {
-      fs.unlink(filePath, () => {});
+      fs.unlink(filePath, () => { });
     }
   }
 };
 
+// GET /pdf
+const getUploads = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const uploads = await getUserUploads(userId);
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, 'Uploads fetched successfully', { uploads }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /pdf/:uploadId
+const getUploadDetail = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { uploadId } = req.params;
+
+    const upload = await getUploadWithTables(uploadId, userId);
+
+    if (!upload) {
+      return next(new ApiError(404, 'Upload not found'));
+    }
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, 'Upload detail fetched successfully', { upload }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 module.exports = {
   extract,
+  getUploads,
+  getUploadDetail,
 };
 
