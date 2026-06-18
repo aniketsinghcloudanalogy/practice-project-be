@@ -46,17 +46,22 @@ const protect = async (req, res, next) => {
     };
     return next();
   } catch (error) {
+   if (error.name === 'TokenExpiredError') {
+    return next(new ApiError(401, 'Token expired'));
+  }
+  if (error.name === 'JsonWebTokenError') {
     return next(new ApiError(401, 'Invalid token'));
+  }
+  // DB or unexpected error
+  return next(new ApiError(500, 'Internal server error'));
   }
 };
 
 const authorize = (...allowedRoles) => (req, res, next) => {
-  if (!req.user || !allowedRoles.includes(req.user.role)) {
-    return next(new ApiError(403, 'Forbidden'));
-  }
+  if (!req.user) return next(new ApiError(401, 'Unauthorized'));
+  if (!allowedRoles.includes(req.user.role)) return next(new ApiError(403, 'Forbidden'));
   return next();
 };
-
 module.exports = {
   protect,
   authorize,
