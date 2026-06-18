@@ -18,7 +18,7 @@ router.get('/health', (req, res) => {
 });
 
 router.use('/users', userRoutes);
-router.use('/contact', contactusRoutes);
+router.use('/contactus', contactusRoutes);
 router.use('/contacts', contactsRoutes);
 
 router.use('/pdfs', pdfRoutes);
