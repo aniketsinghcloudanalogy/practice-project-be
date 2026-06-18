@@ -2,7 +2,9 @@ const { TABLE_SELECT,
   ROW_SELECT,
   processUploadedPdf,
   getUserUploads,
-  getUploadWithTables } = require('./helper');
+  getUploadWithTables,
+  syncUploadTables,
+  softDeleteUploadById } = require('./helper');
 const ApiError = require('../../utils/ApiError');
 const ApiResponse = require('../../utils/ApiResponse');
 const fs = require('fs');
@@ -97,10 +99,49 @@ const getUploadDetail = async (req, res, next) => {
   }
 };
 
+// PUT /aipdf/:uploadId/sync
+const syncUpload = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { uploadId } = req.params;
+    const { tables } = req.body;
+
+    const result = await syncUploadTables({
+      uploadId,
+      userId,
+      tables,
+    });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, 'Upload tables synced successfully', result));
+  } catch (error) {
+    next(error);
+  }
+};
+
+// DELETE /aipdf/:uploadId
+const deleteUpload = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { uploadId } = req.params;
+
+    const result = await softDeleteUploadById(uploadId, userId);
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, 'Upload deleted successfully', result));
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 module.exports = {
   extract,
   getUploads,
   getUploadDetail,
+  syncUpload,
+  deleteUpload,
 };
 

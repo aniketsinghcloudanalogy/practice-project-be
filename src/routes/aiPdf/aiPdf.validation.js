@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const { z } = require('zod');
 
 const upload = require('../../config/multer');
 const ApiError = require('../../utils/ApiError');
@@ -45,7 +46,54 @@ const validateUploadedPdf = (req, res, next) => {
   return next();
 };
 
+const syncRowSchema = z
+  .object({
+    id: z.string().trim().optional(),
+    rowData: z.record(z.any()),
+    rowIndex: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+const syncTableSchema = z
+  .object({
+    id: z.string().trim().optional(),
+    title: z.string().trim().nullable().optional(),
+    columns: z.array(z.any()).default([]),
+    rows: z.array(syncRowSchema).default([]),
+  })
+  .strict();
+
+const syncUploadSchema = z
+  .object({
+    tables: z.array(syncTableSchema),
+  })
+  .strict();
+
+const validateSyncPayload = (req, res, next) => {
+  const parsed = syncUploadSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    return next(new ApiError(400, `${firstIssue.path.join('.')} - ${firstIssue.message}`));
+  }
+
+  req.body = parsed.data;
+  return next();
+};
+
+const validateUploadIdParam = (req, res, next) => {
+  const { uploadId } = req.params;
+
+  if (!uploadId || typeof uploadId !== 'string' || uploadId.trim().length === 0) {
+    return next(new ApiError(400, 'Invalid upload id'));
+  }
+
+  return next();
+};
+
 module.exports = {
   uploadPdf,
   validateUploadedPdf,
+  validateSyncPayload,
+  validateUploadIdParam,
 };
