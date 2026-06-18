@@ -130,6 +130,198 @@ const getUploadWithTables = async (uploadId, userId) => {
   });
 };
 
+const normalizeColumns = (columns) => (Array.isArray(columns) ? columns : []);
+
+const normalizeRows = (rows) => {
+  if (!Array.isArray(rows)) return [];
+
+  return rows.map((row, index) => ({
+    id: row.id,
+    rowData: row.rowData && typeof row.rowData === 'object' ? row.rowData : {},
+    rowIndex: Number.isInteger(row.rowIndex) ? row.rowIndex : index,
+  }));
+};
+
+const syncUploadTables = async ({ uploadId, userId, tables }) => {
+  return prisma.$transaction(async (tx) => {
+    const upload = await tx.pdfUpload.findFirst({
+      where: { id: uploadId, userId, isDeleted: false },
+      select: { id: true },
+    });
+
+    if (!upload) {
+      throw new ApiError(404, 'Upload not found');
+    }
+
+    const existingTables = await tx.pdfTable.findMany({
+      where: { pdfUploadId: uploadId, userId, isDeleted: false },
+      select: { id: true },
+    });
+
+    const existingTableIds = new Set(existingTables.map((table) => table.id));
+    const incomingTableIds = new Set(
+      tables
+        .map((table) => table.id)
+        .filter((id) => typeof id === 'string' && id.length > 0)
+    );
+
+    // Soft-delete tables missing from incoming payload.
+    const tableIdsToDelete = [...existingTableIds].filter((id) => !incomingTableIds.has(id));
+
+    if (tableIdsToDelete.length > 0) {
+      await Promise.all([
+        tx.pdfTable.updateMany({
+          where: { id: { in: tableIdsToDelete }, pdfUploadId: uploadId, userId },
+          data: { isDeleted: true },
+        }),
+        tx.pdfTableRow.updateMany({
+          where: { pdfTableId: { in: tableIdsToDelete } },
+          data: { isDeleted: true },
+        }),
+      ]);
+    }
+
+    let createdTables = 0;
+    let updatedTables = 0;
+    let deletedTables = tableIdsToDelete.length;
+    let createdRows = 0;
+    let updatedRows = 0;
+    let deletedRows = 0;
+
+    for (const incomingTable of tables) {
+      const tableColumns = normalizeColumns(incomingTable.columns);
+      const tableRows = normalizeRows(incomingTable.rows);
+
+      let tableId = incomingTable.id;
+
+      if (tableId && existingTableIds.has(tableId)) {
+        await tx.pdfTable.update({
+          where: { id: tableId },
+          data: {
+            title: incomingTable.title || null,
+            columns: tableColumns,
+            isDeleted: false,
+          },
+        });
+        updatedTables += 1;
+      } else {
+        const created = await tx.pdfTable.create({
+          data: {
+            pdfUploadId: uploadId,
+            userId,
+            title: incomingTable.title || null,
+            columns: tableColumns,
+          },
+          select: { id: true },
+        });
+        tableId = created.id;
+        createdTables += 1;
+      }
+
+      const existingRows = await tx.pdfTableRow.findMany({
+        where: { pdfTableId: tableId, isDeleted: false },
+        select: { id: true },
+      });
+
+      const existingRowIds = new Set(existingRows.map((row) => row.id));
+      const incomingRowIds = new Set(
+        tableRows
+          .map((row) => row.id)
+          .filter((id) => typeof id === 'string' && id.length > 0)
+      );
+
+      const rowIdsToDelete = [...existingRowIds].filter((id) => !incomingRowIds.has(id));
+
+      if (rowIdsToDelete.length > 0) {
+        const deleted = await tx.pdfTableRow.updateMany({
+          where: { id: { in: rowIdsToDelete }, pdfTableId: tableId },
+          data: { isDeleted: true },
+        });
+        deletedRows += deleted.count;
+      }
+
+      for (const incomingRow of tableRows) {
+        if (incomingRow.id && existingRowIds.has(incomingRow.id)) {
+          await tx.pdfTableRow.update({
+            where: { id: incomingRow.id },
+            data: {
+              rowData: incomingRow.rowData,
+              rowIndex: incomingRow.rowIndex,
+              isDeleted: false,
+            },
+          });
+          updatedRows += 1;
+        } else {
+          await tx.pdfTableRow.create({
+            data: {
+              pdfTableId: tableId,
+              rowData: incomingRow.rowData,
+              rowIndex: incomingRow.rowIndex,
+            },
+          });
+          createdRows += 1;
+        }
+      }
+    }
+
+    return {
+      uploadId,
+      summary: {
+        createdTables,
+        updatedTables,
+        deletedTables,
+        createdRows,
+        updatedRows,
+        deletedRows,
+      },
+    };
+  });
+};
+
+const softDeleteUploadById = async (uploadId, userId) => {
+  return prisma.$transaction(async (tx) => {
+    const upload = await tx.pdfUpload.findFirst({
+      where: { id: uploadId, userId, isDeleted: false },
+      select: {
+        id: true,
+        tables: {
+          where: { isDeleted: false },
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!upload) {
+      throw new ApiError(404, 'Upload not found');
+    }
+
+    const tableIds = upload.tables.map((table) => table.id);
+
+    await tx.pdfUpload.update({
+      where: { id: uploadId },
+      data: { isDeleted: true },
+    });
+
+    if (tableIds.length > 0) {
+      await Promise.all([
+        tx.pdfTable.updateMany({
+          where: { id: { in: tableIds }, pdfUploadId: uploadId, userId },
+          data: { isDeleted: true },
+        }),
+        tx.pdfTableRow.updateMany({
+          where: { pdfTableId: { in: tableIds } },
+          data: { isDeleted: true },
+        }),
+      ]);
+    }
+
+    return {
+      uploadId,
+      deletedTables: tableIds.length,
+    };
+  });
+};
+
 
 module.exports = {
   TABLE_SELECT,
@@ -137,4 +329,6 @@ module.exports = {
   processUploadedPdf,
   getUserUploads,
   getUploadWithTables,
+  syncUploadTables,
+  softDeleteUploadById,
 };
