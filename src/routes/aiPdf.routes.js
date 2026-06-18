@@ -14,14 +14,8 @@ router.use(protect);
 // Upload + extract
 router.route('/extract').post(uploadPdf, validateUploadedPdf, aiPdfController.extract);
 
-// Read — available DB fields for line item mapping
-router.route('/line-item-fields').get(aiPdfController.getLineItemFieldOptions);
-
 // Read — list all uploads
 router.route('/').get(aiPdfController.getUploads);
-
-// Read — line items created for a specific upload
-router.route('/:uploadId/line-items').get(validateUploadIdParam, aiPdfController.getUploadLineItems);
 
 // Read — single upload with all tables + rows
 router
