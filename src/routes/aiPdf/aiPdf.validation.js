@@ -59,6 +59,7 @@ const syncTableSchema = z
     id: z.string().trim().optional(),
     title: z.string().trim().nullable().optional(),
     columns: z.array(z.any()).default([]),
+    lineItemMapping: z.record(z.string()).default({}),
     rows: z.array(syncRowSchema).default([]),
   })
   .strict();
