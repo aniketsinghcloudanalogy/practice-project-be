@@ -3,8 +3,6 @@ const { TABLE_SELECT,
   processUploadedPdf,
   getUserUploads,
   getUploadWithTables,
-  getLineItemFields,
-  getLineItemsByUpload,
   syncUploadTables,
   softDeleteUploadById } = require('./helper');
 const ApiError = require('../../utils/ApiError');
@@ -101,33 +99,6 @@ const getUploadDetail = async (req, res, next) => {
   }
 };
 
-const getLineItemFieldOptions = async (req, res, next) => {
-  try {
-    const fields = getLineItemFields();
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, 'Line item fields fetched successfully', { fields }));
-  } catch (error) {
-    next(error);
-  }
-};
-
-const getUploadLineItems = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    const { uploadId } = req.params;
-
-    const lineItems = await getLineItemsByUpload(uploadId, userId);
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, 'Line items fetched successfully', { lineItems }));
-  } catch (error) {
-    next(error);
-  }
-};
-
 // PUT /aipdf/:uploadId/sync
 const syncUpload = async (req, res, next) => {
   try {
@@ -170,8 +141,6 @@ module.exports = {
   extract,
   getUploads,
   getUploadDetail,
-  getLineItemFieldOptions,
-  getUploadLineItems,
   syncUpload,
   deleteUpload,
 };

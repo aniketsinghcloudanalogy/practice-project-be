@@ -7,31 +7,39 @@ datasource db {
 }
 
 model User {
-  id                String           @id @default(cuid())
+  id                String       @id @default(cuid())
   name              String?
-  email             String           @unique
+  email             String       @unique
   password          String?
   image             String?
-  role              UserRole         @default(USER)
-  isAdmin           Boolean          @default(false)
-  isActive          Boolean          @default(true)
-  authProvider      AuthProvider     @default(CREDENTIALS)
+  role              UserRole     @default(USER)
+  isAdmin           Boolean      @default(false)
+  isActive          Boolean      @default(true)
+  authProvider      AuthProvider @default(CREDENTIALS)
   providerAccountId String?
   organizationName  String?
   organizationId    String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  contacts          Contact[]
-  extractedTables   ExtractedTable[]
-  lineItems         LineItems[]
-  pdfTables         PdfTable[]
-  pdfUploads        PdfUpload[]
-  refreshTokens     RefreshToken[]
-  organization      Organization?    @relation(fields: [organizationId], references: [id])
-  userContacts      UserContact[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  contacts      Contact[]
+  userContacts  UserContact[]
+  refreshTokens RefreshToken[]
+
+  extractedTables ExtractedTable[]
+
+  pdfUploads PdfUpload[]
+  pdfTables  PdfTable[]
+  lineItems  LineItem[]
+
+  formSubmissions FormSubmission[]
 
   @@unique([authProvider, providerAccountId])
   @@index([organizationId])
+  @@index([email])
 }
 
 model Organization {
@@ -90,7 +98,6 @@ model PdfUpload {
   isDeleted Boolean    @default(false)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
-  lineItems LineItems[]
   tables    PdfTable[]
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -108,7 +115,7 @@ model PdfTable {
   isDeleted             Boolean       @default(false)
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
-  lineItems             LineItems[]
+  lineItems             LineItem[]
   pdfUpload             PdfUpload     @relation(fields: [pdfUploadId], references: [id], onDelete: Cascade)
   user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   rows                  PdfTableRow[]
@@ -132,11 +139,10 @@ model PdfTableRow {
   @@index([isDeleted])
 }
 
-model LineItems {
+model LineItem {
   id               String    @id @default(cuid())
   userId           String
-  pdfUploadId      String
-  pdfTableId       String?
+  pdfTableId       String
   sourceTableTitle String?
   rowSourceId      String?
   rowIndex         Int?
@@ -162,11 +168,9 @@ model LineItems {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  pdfUpload        PdfUpload @relation(fields: [pdfUploadId], references: [id], onDelete: Cascade)
-  pdfTable         PdfTable? @relation(fields: [pdfTableId], references: [id], onDelete: Cascade)
+  pdfTable         PdfTable  @relation(fields: [pdfTableId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([pdfUploadId])
   @@index([pdfTableId])
   @@index([isDeleted])
 }
@@ -194,7 +198,7 @@ model Contact {
   userId           String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  user             User?    @relation(fields: [userId], references: [id])
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([email])
   @@index([userId])
@@ -217,17 +221,21 @@ model Partner {
 }
 
 model PartnerProgram {
-  id                 Int      @id @default(autoincrement())
+  id                 Int     @id @default(autoincrement())
   partnerProgramName String
   description        String?
-  verificationStep   Boolean  @default(false)
+  verificationStep   Boolean @default(false)
   template           String?
   loginTemplate      String?
   loginScript        String?
-  partnerId          Int
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  partner            Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  partnerId Int
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  programForm ProgramForm?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([partnerId])
 }
@@ -254,6 +262,50 @@ model UserContact {
   @@index([contactType])
 }
 
+model ProgramForm {
+  id        Int @id @default(autoincrement())
+  programId Int @unique
+
+  program PartnerProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  formDesign      Json?
+  submittedDesign Json?
+
+  status FormStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([programId])
+}
+
+model FormSubmission {
+  id       String @id @default(cuid())
+  formType String
+
+  draftData Json?
+  finalData Json?
+
+  status SubmissionStatus @default(DRAFT)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  creatorId   String?
+  email       String?
+  sessionId   String?
+  submittedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, formType])
+  @@index([status])
+  @@index([sessionId])
+  @@index([email])
+  @@index([creatorId])
+}
+
 enum UserRole {
   USER
   ADMIN
@@ -269,4 +321,14 @@ enum AuthProvider {
 enum ContactType {
   PRIMARY
   SECONDARY
+}
+
+enum FormStatus {
+  DRAFT
+  SUBMITTED
+}
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
 }
