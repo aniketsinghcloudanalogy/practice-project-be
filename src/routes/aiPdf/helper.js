@@ -7,6 +7,7 @@ const TABLE_SELECT = {
   userId: true,
   title: true,
   columns: true,
+  lineItemColumnMapping: true,
   isDeleted: true,
   createdAt: true,
   updatedAt: true,
@@ -21,6 +22,60 @@ const ROW_SELECT = {
   createdAt: true,
   updatedAt: true,
 };
+
+const LINE_ITEM_SELECT = {
+  id: true,
+  userId: true,
+  pdfUploadId: true,
+  pdfTableId: true,
+  sourceTableTitle: true,
+  rowSourceId: true,
+  rowIndex: true,
+  lineNumber: true,
+  itemCode: true,
+  employeeId: true,
+  employeeName: true,
+  description: true,
+  department: true,
+  category: true,
+  email: true,
+  phone: true,
+  salary: true,
+  quantity: true,
+  unitPrice: true,
+  amount: true,
+  currency: true,
+  status: true,
+  referenceNo: true,
+  location: true,
+  notes: true,
+  isDeleted: true,
+  createdAt: true,
+  updatedAt: true,
+};
+
+const LINE_ITEM_FIELD_OPTIONS = [
+  { key: 'lineNumber', label: 'Line Number' },
+  { key: 'itemCode', label: 'Item Code' },
+  { key: 'employeeId', label: 'Employee ID' },
+  { key: 'employeeName', label: 'Employee Name' },
+  { key: 'description', label: 'Description' },
+  { key: 'department', label: 'Department' },
+  { key: 'category', label: 'Category' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'salary', label: 'Salary' },
+  { key: 'quantity', label: 'Quantity' },
+  { key: 'unitPrice', label: 'Unit Price' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'currency', label: 'Currency' },
+  { key: 'status', label: 'Status' },
+  { key: 'referenceNo', label: 'Reference No' },
+  { key: 'location', label: 'Location' },
+  { key: 'notes', label: 'Notes' },
+];
+
+const LINE_ITEM_FIELD_KEYS = new Set(LINE_ITEM_FIELD_OPTIONS.map((field) => field.key));
 
 const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
   const tables = Array.isArray(extractedData?.tables) ? extractedData.tables : [];
@@ -50,6 +105,7 @@ const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
             userId,
             title: table.title || null,
             columns: table.columns || [],
+            lineItemColumnMapping: null,
           },
           select: TABLE_SELECT,
         });
@@ -119,6 +175,7 @@ const getUploadWithTables = async (uploadId, userId) => {
         orderBy: { createdAt: 'asc' },
         select: {
           ...TABLE_SELECT,
+          lineItemColumnMapping: true,
           rows: {          
             where: { isDeleted: false },
             orderBy: { rowIndex: 'asc' },
@@ -132,6 +189,25 @@ const getUploadWithTables = async (uploadId, userId) => {
 
 const normalizeColumns = (columns) => (Array.isArray(columns) ? columns : []);
 
+const normalizeLineItemMapping = (mapping) => {
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) {
+    return {};
+  }
+
+  return Object.entries(mapping).reduce((result, [sourceKey, targetField]) => {
+    if (
+      typeof sourceKey === 'string' &&
+      sourceKey.trim().length > 0 &&
+      typeof targetField === 'string' &&
+      LINE_ITEM_FIELD_KEYS.has(targetField)
+    ) {
+      result[sourceKey] = targetField;
+    }
+
+    return result;
+  }, {});
+};
+
 const normalizeRows = (rows) => {
   if (!Array.isArray(rows)) return [];
 
@@ -139,7 +215,52 @@ const normalizeRows = (rows) => {
     id: row.id,
     rowData: row.rowData && typeof row.rowData === 'object' ? row.rowData : {},
     rowIndex: Number.isInteger(row.rowIndex) ? row.rowIndex : index,
+    lineItemMapping: normalizeLineItemMapping(row.lineItemMapping),
   }));
+};
+
+const buildLineItemRecords = ({ rows, mapping, userId, uploadId, tableId, tableTitle }) => {
+  const normalizedMapping = normalizeLineItemMapping(mapping);
+
+  if (Object.keys(normalizedMapping).length === 0) {
+    return [];
+  }
+
+  return rows.map((row, rowIndex) => {
+    const lineItem = {
+      userId,
+      pdfUploadId: uploadId,
+      pdfTableId: tableId,
+      sourceTableTitle: tableTitle || null,
+      rowSourceId: row.id || null,
+      rowIndex: row.rowIndex ?? rowIndex,
+    };
+
+    Object.entries(normalizedMapping).forEach(([sourceColumn, targetField]) => {
+      lineItem[targetField] = row.rowData?.[sourceColumn] ?? null;
+    });
+
+    return lineItem;
+  });
+};
+
+const getLineItemFields = () => LINE_ITEM_FIELD_OPTIONS;
+
+const getLineItemsByUpload = async (uploadId, userId) => {
+  const upload = await prisma.pdfUpload.findFirst({
+    where: { id: uploadId, userId, isDeleted: false },
+    select: { id: true },
+  });
+
+  if (!upload) {
+    throw new ApiError(404, 'Upload not found');
+  }
+
+  return prisma.lineItems.findMany({
+    where: { pdfUploadId: uploadId, userId, isDeleted: false },
+    orderBy: [{ sourceTableTitle: 'asc' }, { rowIndex: 'asc' }, { createdAt: 'asc' }],
+    select: LINE_ITEM_SELECT,
+  });
 };
 
 const syncUploadTables = async ({ uploadId, userId, tables }) => {
@@ -178,6 +299,10 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
           where: { pdfTableId: { in: tableIdsToDelete } },
           data: { isDeleted: true },
         }),
+        tx.lineItems.updateMany({
+          where: { pdfUploadId: uploadId, pdfTableId: { in: tableIdsToDelete }, userId, isDeleted: false },
+          data: { isDeleted: true },
+        }),
       ]);
     }
 
@@ -191,6 +316,7 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
     for (const incomingTable of tables) {
       const tableColumns = normalizeColumns(incomingTable.columns);
       const tableRows = normalizeRows(incomingTable.rows);
+      const lineItemMapping = normalizeLineItemMapping(incomingTable.lineItemMapping);
 
       let tableId = incomingTable.id;
 
@@ -200,6 +326,7 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
           data: {
             title: incomingTable.title || null,
             columns: tableColumns,
+            lineItemColumnMapping: lineItemMapping,
             isDeleted: false,
           },
         });
@@ -211,6 +338,7 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
             userId,
             title: incomingTable.title || null,
             columns: tableColumns,
+            lineItemColumnMapping: lineItemMapping,
           },
           select: { id: true },
         });
@@ -262,6 +390,26 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
           createdRows += 1;
         }
       }
+
+      const createdLineItems = buildLineItemRecords({
+        rows: tableRows,
+        mapping: lineItemMapping,
+        userId,
+        uploadId,
+        tableId,
+        tableTitle: incomingTable.title || null,
+      });
+
+      await tx.lineItems.updateMany({
+        where: { pdfUploadId: uploadId, pdfTableId: tableId, userId, isDeleted: false },
+        data: { isDeleted: true },
+      });
+
+      if (createdLineItems.length > 0) {
+        await tx.lineItems.createMany({
+          data: createdLineItems,
+        });
+      }
     }
 
     return {
@@ -312,7 +460,16 @@ const softDeleteUploadById = async (uploadId, userId) => {
           where: { pdfTableId: { in: tableIds } },
           data: { isDeleted: true },
         }),
+        tx.lineItems.updateMany({
+          where: { pdfUploadId: uploadId, userId },
+          data: { isDeleted: true },
+        }),
       ]);
+    } else {
+      await tx.lineItems.updateMany({
+        where: { pdfUploadId: uploadId, userId },
+        data: { isDeleted: true },
+      });
     }
 
     return {
@@ -326,9 +483,12 @@ const softDeleteUploadById = async (uploadId, userId) => {
 module.exports = {
   TABLE_SELECT,
   ROW_SELECT,
+  LINE_ITEM_SELECT,
   processUploadedPdf,
   getUserUploads,
   getUploadWithTables,
+  getLineItemFields,
+  getLineItemsByUpload,
   syncUploadTables,
   softDeleteUploadById,
 };

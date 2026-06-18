@@ -23,6 +23,7 @@ model User {
   updatedAt         DateTime         @updatedAt
   contacts          Contact[]
   extractedTables   ExtractedTable[]
+  lineItems         LineItems[]
   pdfTables         PdfTable[]
   pdfUploads        PdfUpload[]
   refreshTokens     RefreshToken[]
@@ -89,6 +90,7 @@ model PdfUpload {
   isDeleted Boolean    @default(false)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+  lineItems LineItems[]
   tables    PdfTable[]
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -97,17 +99,19 @@ model PdfUpload {
 }
 
 model PdfTable {
-  id          String        @id @default(cuid())
-  pdfUploadId String
-  userId      String
-  title       String?
-  columns     Json
-  isDeleted   Boolean       @default(false)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  pdfUpload   PdfUpload     @relation(fields: [pdfUploadId], references: [id], onDelete: Cascade)
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rows        PdfTableRow[]
+  id                    String        @id @default(cuid())
+  pdfUploadId           String
+  userId                String
+  title                 String?
+  columns               Json
+  lineItemColumnMapping Json?
+  isDeleted             Boolean       @default(false)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  lineItems             LineItems[]
+  pdfUpload             PdfUpload     @relation(fields: [pdfUploadId], references: [id], onDelete: Cascade)
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows                  PdfTableRow[]
 
   @@index([pdfUploadId])
   @@index([userId])
@@ -124,6 +128,45 @@ model PdfTableRow {
   updatedAt  DateTime @updatedAt
   table      PdfTable @relation(fields: [pdfTableId], references: [id], onDelete: Cascade)
 
+  @@index([pdfTableId])
+  @@index([isDeleted])
+}
+
+model LineItems {
+  id               String    @id @default(cuid())
+  userId           String
+  pdfUploadId      String
+  pdfTableId       String?
+  sourceTableTitle String?
+  rowSourceId      String?
+  rowIndex         Int?
+  lineNumber       String?
+  itemCode         String?
+  employeeId       String?
+  employeeName     String?
+  description      String?
+  department       String?
+  category         String?
+  email            String?
+  phone            String?
+  salary           String?
+  quantity         String?
+  unitPrice        String?
+  amount           String?
+  currency         String?
+  status           String?
+  referenceNo      String?
+  location         String?
+  notes            String?
+  isDeleted        Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pdfUpload        PdfUpload @relation(fields: [pdfUploadId], references: [id], onDelete: Cascade)
+  pdfTable         PdfTable? @relation(fields: [pdfTableId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([pdfUploadId])
   @@index([pdfTableId])
   @@index([isDeleted])
 }
