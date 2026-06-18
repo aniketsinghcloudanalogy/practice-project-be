@@ -2,8 +2,6 @@ const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const crypto = require('crypto');
 
-// ─── Selects (unchanged) ─────────────────────────────────────────────────────
-
 const TABLE_SELECT = {
   id: true, pdfUploadId: true, userId: true, title: true,
   columns: true, lineItemColumnMapping: true,
@@ -15,23 +13,21 @@ const ROW_SELECT = {
   isDeleted: true, createdAt: true, updatedAt: true,
 };
 
-// LINE_ITEM_FIELD_OPTIONS + LINE_ITEM_FIELD_KEYS removed — live on the frontend now.
-// If you ever need them server-side (e.g. for a CSV export), import from a shared package.
 
-// ─── processUploadedPdf (unchanged — already optimal) ────────────────────────
+// ─── processUploadedPdf (optimal) ────────────────────────
 
 const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
   const tables = Array.isArray(extractedData?.tables) ? extractedData.tables : [];
-  if (tables.length === 0) throw new ApiError(422, 'No tables found in PDF');
+  if (tables.length === 0) throw new ApiError(422, 'No tables found in PDF');//validate table exist
 
   return prisma.$transaction(async (tx) => {
-    const pdfUpload = await tx.pdfUpload.create({
+    const pdfUpload = await tx.pdfUpload.create({  // create upload record
       data: { userId, fileName },
       select: { id: true },
     });
 
     const results = await Promise.all(
-      tables.map(async (table) => {
+      tables.map(async (table) => {  //loop through tables, create table record + rows for each
         const pdfTable = await tx.pdfTable.create({
           data: {
             pdfUploadId: pdfUpload.id, userId,
@@ -58,7 +54,7 @@ const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
   });
 };
 
-// ─── getUserUploads (unchanged) ───────────────────────────────────────────────
+// ─── getUserUploads  ───────────────────────────────────────────────
 
 const getUserUploads = async (userId) =>
   prisma.pdfUpload.findMany({
@@ -70,7 +66,7 @@ const getUserUploads = async (userId) =>
     },
   });
 
-// ─── getUploadWithTables (unchanged) ─────────────────────────────────────────
+// ─── getUploadWithTables  ─────────────────────────────────────────
 
 const getUploadWithTables = async (uploadId, userId) =>
   prisma.pdfUpload.findFirst({
@@ -92,22 +88,20 @@ const getUploadWithTables = async (uploadId, userId) =>
     },
   });
 
-const hashMapping = (mapping) =>
+const hashMapping = (mapping) =>  // simple hash function to compare mappings without deep equality checks
   crypto
     .createHash('md5')
     .update(JSON.stringify(mapping ?? {}))
     .digest('hex');
 
 // ─── buildLineItemRecords — OPTIMIZED ────────────────────────────────────────
-// Removed the normalizeLineItemMapping call here.
-// Caller (syncUploadTables) already passes a clean mapping, or the frontend does.
 
-const buildLineItemRecords = ({ rows, mapping, userId, tableId, tableTitle }) => {
-  const mappingEntries = Object.entries(mapping);
-  if (mappingEntries.length === 0) return [];
+const buildLineItemRecords = ({ rows, mapping, userId, tableId, tableTitle }) => { // mapping is { sourceColumn: targetField }
+  const mappingEntries = Object.entries(mapping);  // if mapping is empty, no line items to create — skip the loop entirely
+  if (mappingEntries.length === 0) return [];  
 
-  return rows.map((row, rowIndex) => {
-    const lineItem = {
+  return rows.map((row, rowIndex) => {  // for each row, build a line item based on the mapping
+    const lineItem = {                     // base fields for every line item
       userId,
       pdfTableId:      tableId,
       sourceTableTitle: tableTitle || null,
@@ -122,40 +116,31 @@ const buildLineItemRecords = ({ rows, mapping, userId, tableId, tableTitle }) =>
 };
 
 // ─── syncUploadTables — OPTIMIZED ────────────────────────────────────────────
-// Before: for…of with sequential awaits inside = one round-trip per table
-// After:  batch all reads up-front, then process tables with minimal queries
+//  batch all reads up-front, then process tables with minimal queries
 
 const syncUploadTables = async ({ uploadId, userId, tables }) => {
-  // Payload arrives pre-normalized from the frontend.
-  // No need to call normalizeColumns/normalizeRows/normalizeLineItemMapping here.
 
   return prisma.$transaction(async (tx) => {
-    const upload = await tx.pdfUpload.findFirst({
-      where: { id: uploadId, userId, isDeleted: false },
-      select: { id: true },
-    });
-    if (!upload) throw new ApiError(404, 'Upload not found');
 
     // ── Batch read 1: all existing tables ────────────────────────────────────
-    const existingTables = await tx.pdfTable.findMany({
+    const existingTables = await tx.pdfTable.findMany({                           // single query to get all tables for the upload
       where: { pdfUploadId: uploadId, userId, isDeleted: false },
       select: { id: true, lineItemColumnMapping: true },
     });
 
-    const existingTableIds = new Set(existingTables.map((t) => t.id));
+
+    const existingTableIds = new Set(existingTables.map((t) => t.id));          // also create a Set for quick existence checks during processing
     const existingTableMappingsById = new Map(
       existingTables.map((t) => [t.id, t.lineItemColumnMapping ?? {}])
     );
     const incomingTableIds = new Set(
-      tables.filter(t => typeof t?.id === 'string' && t.id.length > 0).map(t => t.id)
+      tables.filter(t => typeof t?.id === 'string' && t.id.length > 0).map(t => t.id)     // also track incoming table IDs to identify deletions
     );
 
-    const tableIdsToDelete = [...existingTableIds].filter(id => !incomingTableIds.has(id));
-    const activeExistingTableIds = [...existingTableIds].filter(id => incomingTableIds.has(id));
+    const tableIdsToDelete = [...existingTableIds].filter(id => !incomingTableIds.has(id));  // tables that exist in DB but not in incoming data should be deleted
+    const activeExistingTableIds = [...existingTableIds].filter(id => incomingTableIds.has(id));    // tables that exist in both DB and incoming data are "active" — we need to read their rows for further processing
 
-    // ── Batch read 2: all rows for active tables in ONE query ─────────────────
-    // Before: one findMany per table inside the loop
-    // After: single query, grouped into a Map
+   
     const existingRowsByTableId = new Map();
 
     if (activeExistingTableIds.length > 0) {
@@ -296,7 +281,6 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
 };
 
 // ─── softDeleteUploadById — OPTIMIZED ────────────────────────────────────────
-// Removed the unreachable else branch (tables is always populated if upload exists).
 
 const softDeleteUploadById = async (uploadId, userId) => {
   return prisma.$transaction(async (tx) => {
