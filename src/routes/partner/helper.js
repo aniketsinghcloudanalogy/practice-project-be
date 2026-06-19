@@ -130,7 +130,73 @@ const findPartnerProgramsWithTotal = async (partnerId) => {
     countProgramsByPartnerId(partnerId),
   ]);
 
-  return { programs, total };
+  return { programs: programs || [], total: total || 0 };
+};
+
+const findProgramById = (id) => {
+  return prisma.partnerProgram.findUnique({
+    where: { id },
+    select: PROGRAM_SELECT,
+  });
+};
+
+const findProgramByIdWithPartner = (id) => {
+  return prisma.partnerProgram.findUnique({
+    where: { id },
+    select: {
+      ...PROGRAM_SELECT,
+      partner: {
+        select: {
+          id: true,
+          partnerName: true,
+        },
+      },
+    },
+  });
+};
+
+const updateProgramById = (id, data) => {
+  return prisma.partnerProgram.update({
+    where: { id },
+    data,
+    select: PROGRAM_SELECT,
+  });
+};
+
+const deleteProgramById = (id) => {
+  return prisma.partnerProgram.delete({
+    where: { id },
+    select: PROGRAM_SELECT,
+  });
+};
+
+const findAllPartnersWithPrograms = ({ page = 1, limit = 10, search = '' } = {}) => {
+  const skip = (page - 1) * limit;
+  const where = search
+    ? {
+        OR: [
+          { partnerName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ],
+      }
+    : {};
+
+  return Promise.all([
+    prisma.partner.findMany({
+      where,
+      select: {
+        ...PARTNER_SELECT,
+        programs: {
+          select: PROGRAM_SELECT,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+      orderBy: { partnerName: 'asc' },
+      skip,
+      take: limit,
+    }),
+    prisma.partner.count({ where }),
+  ]);
 };
 
 module.exports = {
@@ -150,4 +216,9 @@ module.exports = {
   countAllPrograms,
   countPendingPrograms,
   updateProgramVerification,
+  findProgramById,
+  findProgramByIdWithPartner,
+  updateProgramById,
+  deleteProgramById,
+  findAllPartnersWithPrograms,
 };

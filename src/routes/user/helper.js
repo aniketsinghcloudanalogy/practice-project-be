@@ -72,9 +72,9 @@ const resolveUserAccessForEmail = async (tx, email) => {
   const isFirstOrganizationUser = organizationUserCount === 0;
 
   return {
-    role: isFirstOrganizationUser ? 'USER' : 'ADMIN',
-    isAdmin: !isFirstOrganizationUser,
-    isActive: isFirstOrganizationUser,
+    role: isFirstOrganizationUser ? 'ADMIN' : 'USER',
+    isAdmin: isFirstOrganizationUser,
+    isActive: !isFirstOrganizationUser,
     organizationId: organization.id,
     organizationName: organization.name,
   };
@@ -160,7 +160,7 @@ const createUser = (data) => {
 const createUserWithResolvedAccess = (data) => {
   return prisma.$transaction(async (tx) => {
     const access = await resolveUserAccessForEmail(tx, data.email);
-      
+
     return tx.user.create({
       data: {
         ...data,
@@ -168,6 +168,21 @@ const createUserWithResolvedAccess = (data) => {
       },
       select: USER_SELECT,
     });
+  });
+};
+
+// Resolves org fields for an email without creating a user — used by OAuth update path
+const resolveOrgForEmail = (email) => {
+  return prisma.$transaction(async (tx) => {
+    const domain = getEmailDomain(email);
+    if (domain === SUPER_ADMIN_EMAIL_DOMAIN) return {};
+    const organizationName = getOrganizationNameFromDomain(domain);
+    const organization = await tx.organization.upsert({
+      where: { domain },
+      update: { name: organizationName, isActive: true },
+      create: { name: organizationName, domain, isActive: true },
+    });
+    return { organizationId: organization.id, organizationName: organization.name };
   });
 };
 
@@ -253,6 +268,7 @@ module.exports = {
   findUserContactsByUserId,
   createUser,
   createUserWithResolvedAccess,
+  resolveOrgForEmail,
   updateUser,
   createRefreshToken,
   findRefreshTokenByToken,

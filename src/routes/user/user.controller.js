@@ -13,6 +13,7 @@ const {
   findUserByIdWithContacts,
   findUserContactsByUserId,
   createUserWithResolvedAccess,
+  resolveOrgForEmail,
   updateUser,
   createRefreshToken,
   findActiveRefreshTokenByUserId,
@@ -68,10 +69,7 @@ const mapProvider = (provider) => {
   const normalizedProvider = provider.trim().toLowerCase();
 
   if (normalizedProvider === 'google') return AUTH_PROVIDER.GOOGLE;
-  if (
-    normalizedProvider === 'microsoft' ||
-    normalizedProvider === 'azure-ad'
-  ) {
+  if (normalizedProvider === 'microsoft' || normalizedProvider === 'azure-ad') {
     return AUTH_PROVIDER.MICROSOFT;
   }
 
@@ -125,7 +123,6 @@ const login = async (req, res) => {
     if (!user.isActive) {
       throw new ApiError(403, 'Your account is not activated. Please contact your administrator.');
     }
-
 
     const passwordMatches = await comparePassword(password, user.password);
 
@@ -211,12 +208,15 @@ const oauth = async (req, res) => {
       if (!existingByProvider.isActive) {
         throw new ApiError(403, 'Your account has been deactivated. Please contact support.');
       }
+      // Save organization if not yet set
+      const orgUpdate = existingByProvider.organizationId ? {} : await resolveOrgForEmail(normalizedEmail);
       const updatedUser = await updateUser(existingByProvider.id, {
         email: normalizedEmail,
         name: name?.trim() || existingByProvider.name,
         image: image ?? existingByProvider.image,
         authProvider,
         providerAccountId,
+        ...orgUpdate,
       });
 
       const result = await buildAuthResponse(updatedUser);
@@ -229,11 +229,14 @@ const oauth = async (req, res) => {
       if (!existingByEmail.isActive) {
         throw new ApiError(403, 'Your account has been deactivated. Please contact support.');
       }
+      // Save organization if not yet set
+      const orgUpdate = existingByEmail.organizationId ? {} : await resolveOrgForEmail(normalizedEmail);
       const updatedUser = await updateUser(existingByEmail.id, {
         name: name?.trim() || existingByEmail.name,
         image: image ?? existingByEmail.image,
         authProvider,
         providerAccountId,
+        ...orgUpdate,
       });
 
       const result = await buildAuthResponse(updatedUser);
@@ -301,7 +304,6 @@ const activateAdmin = async (req, res) => {
   try {
     const { adminId } = req.params;
 
-    // Only SUPER_ADMIN can activate admins
     if (req.user.role !== 'SUPER_ADMIN') {
       throw new ApiError(403, 'Only Super Admin can activate admins');
     }
@@ -328,7 +330,6 @@ const deactivateAdmin = async (req, res) => {
   try {
     const { adminId } = req.params;
 
-    // Only SUPER_ADMIN can deactivate admins
     if (req.user.role !== 'SUPER_ADMIN') {
       throw new ApiError(403, 'Only Super Admin can deactivate admins');
     }
@@ -343,14 +344,12 @@ const deactivateAdmin = async (req, res) => {
       throw new ApiError(400, 'User is not an admin');
     }
 
-    // Prevent deactivating the requesting super admin
     if (adminId === req.user.id) {
       throw new ApiError(400, 'You cannot deactivate your own account');
     }
 
     const updatedAdmin = await updateUserActiveStatus(adminId, false);
 
-    // Revoke all refresh tokens for the deactivated admin
     await revokeAllRefreshTokensForUser(adminId);
 
     return res.status(200).json(new ApiResponse(200, 'Admin deactivated successfully', normalizedUser(updatedAdmin)));
@@ -393,7 +392,6 @@ const toggleUserActive = async (req, res) => {
       throw new ApiError(400, 'isActive must be a boolean');
     }
 
-    // Prevent self-deactivation
     if (userId === req.user.id && !isActive) {
       throw new ApiError(400, 'You cannot deactivate your own account');
     }
@@ -401,7 +399,6 @@ const toggleUserActive = async (req, res) => {
     const target = await findUserById(userId);
     if (!target) throw new ApiError(404, 'User not found');
 
-    // Only SUPER_ADMIN can toggle ADMIN or SUPER_ADMIN accounts
     if ((target.role === 'ADMIN' || target.role === 'SUPER_ADMIN') && req.user.role !== 'SUPER_ADMIN') {
       throw new ApiError(403, 'Only Super Admin can activate or deactivate admin accounts');
     }

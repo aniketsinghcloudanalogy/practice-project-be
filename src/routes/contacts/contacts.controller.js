@@ -2,39 +2,33 @@ const contactsModel = require('./helper');
 const ApiError = require('../../utils/ApiError');
 const ApiResponse = require('../../utils/ApiResponse');
 
-const createContact = async (req, res, next) => {
+const createContact = async (req, res) => {
   try {
     const contact = await contactsModel.createContact(req.user.id, req.body);
 
     return res.status(201).json(
-      new ApiResponse(
-        201,
-        'Contact created successfully',
-        contact
-      )
+      new ApiResponse(201, 'Contact created successfully', contact)
     );
   } catch (error) {
-    next(error);
+    const status = error.statusCode || error.status || 500;
+    return res.status(status).json(new ApiResponse(status, error.message || 'Internal Server Error', null));
   }
 };
 
-const getContacts = async (req, res, next) => {
+const getContacts = async (req, res) => {
   try {
     const contacts = await contactsModel.findContactsByUserId(req.user.id);
 
     return res.status(200).json(
-      new ApiResponse(
-        200,
-        'Contacts fetched successfully',
-        contacts
-      )
+      new ApiResponse(200, 'Contacts fetched successfully', contacts)
     );
   } catch (error) {
-    next(error);
+    const status = error.statusCode || error.status || 500;
+    return res.status(status).json(new ApiResponse(status, error.message || 'Internal Server Error', null));
   }
 };
 
-const getContact = async (req, res, next) => {
+const getContact = async (req, res) => {
   try {
     const contact = await contactsModel.findContactByIdAndUserId(
       req.params.contactId,
@@ -42,22 +36,19 @@ const getContact = async (req, res, next) => {
     );
 
     if (!contact) {
-      return next(new ApiError(404, 'Contact not found'));
+      throw new ApiError(404, 'Contact not found');
     }
 
     return res.status(200).json(
-      new ApiResponse(
-        200,
-        'Contact fetched successfully',
-        contact
-      )
+      new ApiResponse(200, 'Contact fetched successfully', contact)
     );
   } catch (error) {
-    next(error);
+    const status = error.statusCode || error.status || 500;
+    return res.status(status).json(new ApiResponse(status, error.message || 'Internal Server Error', null));
   }
 };
 
-const updateContact = async (req, res, next) => {
+const updateContact = async (req, res) => {
   try {
     const result = await contactsModel.updateContact(
       req.params.contactId,
@@ -66,7 +57,7 @@ const updateContact = async (req, res, next) => {
     );
 
     if (result.count === 0) {
-      return next(new ApiError(404, 'Contact not found'));
+      throw new ApiError(404, 'Contact not found');
     }
 
     const contact = await contactsModel.findContactByIdAndUserId(
@@ -75,18 +66,15 @@ const updateContact = async (req, res, next) => {
     );
 
     return res.status(200).json(
-      new ApiResponse(
-        200,
-        'Contact updated successfully',
-        contact
-      )
+      new ApiResponse(200, 'Contact updated successfully', contact)
     );
   } catch (error) {
-    next(error);
+    const status = error.statusCode || error.status || 500;
+    return res.status(status).json(new ApiResponse(status, error.message || 'Internal Server Error', null));
   }
 };
 
-const deleteContact = async (req, res, next) => {
+const deleteContact = async (req, res) => {
   try {
     const result = await contactsModel.deleteContact(
       req.params.contactId,
@@ -94,17 +82,15 @@ const deleteContact = async (req, res, next) => {
     );
 
     if (result.count === 0) {
-      return next(new ApiError(404, 'Contact not found'));
+      throw new ApiError(404, 'Contact not found');
     }
 
     return res.status(200).json(
-      new ApiResponse(
-        200,
-        'Contact deleted successfully'
-      )
+      new ApiResponse(200, 'Contact deleted successfully')
     );
   } catch (error) {
-    next(error);
+    const status = error.statusCode || error.status || 500;
+    return res.status(status).json(new ApiResponse(status, error.message || 'Internal Server Error', null));
   }
 };
 

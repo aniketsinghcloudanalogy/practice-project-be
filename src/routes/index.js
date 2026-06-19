@@ -5,6 +5,7 @@ const contactusRoutes = require('./contactus.routes');
 const contactsRoutes = require('./contacts.routes');
 const pdfRoutes = require('./pdf.routes');
 const partnerRoutes = require('./partner.routes');
+const formsRoutes = require('./forms.routes');
 
 router.get('/health', (req, res) => {
   return res.status(200).json({
@@ -19,5 +20,6 @@ router.use('/contacts', contactsRoutes);
 router.use('/pdf', pdfRoutes);
 router.use('/pdfs', pdfRoutes);
 router.use('/partners', partnerRoutes);
+router.use('/forms', formsRoutes);
 
 module.exports = router;

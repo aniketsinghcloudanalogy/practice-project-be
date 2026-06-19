@@ -4,9 +4,7 @@ const { verifyAccessToken } = require('../utils/jwt');
 const protect = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
-  // console.log(authHeader);
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    
     return next(new ApiError(401, 'Unauthorized'));
   }
 
