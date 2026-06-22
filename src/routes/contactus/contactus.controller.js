@@ -10,7 +10,7 @@ const hasContactMailConfig = () => {
   return Boolean(host && port && user && pass && to);
 };
 
-const createContact = async (req, res, next) => {
+const createContact = async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -51,14 +51,11 @@ const createContact = async (req, res, next) => {
     }
 
     return res.status(201).json(
-      new ApiResponse(
-        201,
-        'Contact submitted successfully',
-        contact
-      )
+      new ApiResponse(201, 'Contact submitted successfully', contact)
     );
   } catch (error) {
-    next(error);
+    const status = error.statusCode || error.status || 500;
+    return res.status(status).json(new ApiResponse(status, error.message || 'Internal Server Error', null));
   }
 };
 
