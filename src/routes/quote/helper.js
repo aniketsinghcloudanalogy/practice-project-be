@@ -125,7 +125,7 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
 
   const { count } = await prisma.lineItem.updateMany({
     where: { userId, pdfTableId: { in: processResult.tables.map((t) => t.tableId) }, isDeleted: false },
-    data: { quoteFileId: createdQuoteFile.id },
+    data: { quote_id: quoteId, quote_file_id: createdQuoteFile.id },
   });
 
   return { quoteFile: createdQuoteFile, lineItemCount: count };
@@ -211,16 +211,18 @@ const getQuotesByUserId = async (userId) => {
     },
   });
 
-  const allQuoteFileIds = quotes.flatMap((q) => q.quote_files.map((f) => f.id));
+  const quoteIds = quotes.map((q) => q.id);
 
-  const lineItemCounts = await prisma.lineItem.groupBy({
-    by: ['quoteFileId'],
-    where: { quoteFileId: { in: allQuoteFileIds }, isDeleted: false },
-    _count: true,
-  });
+  const lineItemCounts = quoteIds.length
+    ? await prisma.lineItem.groupBy({
+      by: ['quote_id'],
+      where: { quote_id: { in: quoteIds }, isDeleted: false },
+      _count: true,
+    })
+    : [];
 
-  const countByFileId = lineItemCounts.reduce((acc, { quoteFileId, _count }) => {
-    acc[quoteFileId] = _count;
+  const countByQuoteId = lineItemCounts.reduce((acc, { quote_id, _count }) => {
+    if (quote_id) acc[quote_id] = _count;
     return acc;
   }, {});
 
@@ -232,7 +234,7 @@ const getQuotesByUserId = async (userId) => {
     pdfUrl: quote.pdf_url,
     status: quote.status,
     fileCount: quote._count.quote_files,
-    lineItemCount: quote.quote_files.reduce((sum, f) => sum + (countByFileId[f.id] ?? 0), 0),
+    lineItemCount: countByQuoteId[quote.id] ?? 0,
     createdAt: quote.created_at,
   }));
 };
@@ -258,12 +260,13 @@ const getQuoteDetailById = async (quoteId, userId) => {
   if (!quote) throw new ApiError(404, 'Quote not found');
 
   const allLineItems = await prisma.lineItem.findMany({
-    where: { quoteFileId: { in: quote.quote_files.map((f) => f.id) }, isDeleted: false },
+    where: { quote_id: quote.id, isDeleted: false },
     orderBy: { rowIndex: 'asc' },
   });
 
   const lineItemsByFileId = allLineItems.reduce((acc, item) => {
-    (acc[item.quoteFileId] ??= []).push(item);
+    if (!item.quote_file_id) return acc;
+    (acc[item.quote_file_id] ??= []).push(item);
     return acc;
   }, {});
 
