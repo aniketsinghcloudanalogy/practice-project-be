@@ -14,6 +14,37 @@ const ROW_SELECT = {
 };
 
 
+const hashMapping = (mapping) =>  // simple hash function to compare mappings without deep equality checks
+  crypto
+    .createHash('md5')
+    .update(JSON.stringify(mapping ?? {}))
+    .digest('hex');
+
+
+const buildLineItemRecords = ({ rows, mapping, userId, tableId, tableTitle }) => { // mapping is { sourceColumn: targetField }
+  const mappingEntries = Object.entries(mapping);  // if mapping is empty, no line items to create — skip the loop entirely
+  if (mappingEntries.length === 0) return [];
+
+  return rows.map((row, rowIndex) => {  // for each row, build a line item based on the mapping
+    const lineItem = {                     // base fields for every line item
+      userId,
+      pdfTableId:      tableId,
+      sourceTableTitle: tableTitle || null,
+      rowSourceId:     row.id || null,
+      rowIndex:        row.rowIndex ?? rowIndex,
+    };
+    for (const [sourceColumn, targetField] of mappingEntries) {
+      const value = row.rowData?.[sourceColumn];
+      lineItem[targetField] = value === null || value === undefined ? null : String(value);
+    }
+    return lineItem;
+  });
+};
+
+
+// ─── DB operations ────────────────────────────────────────────────────────────
+
+
 // ─── processUploadedPdf (optimal) ────────────────────────
 
 const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
@@ -88,33 +119,6 @@ const getUploadWithTables = async (uploadId, userId) =>
     },
   });
 
-const hashMapping = (mapping) =>  // simple hash function to compare mappings without deep equality checks
-  crypto
-    .createHash('md5')
-    .update(JSON.stringify(mapping ?? {}))
-    .digest('hex');
-
-// ─── buildLineItemRecords — OPTIMIZED ────────────────────────────────────────
-
-const buildLineItemRecords = ({ rows, mapping, userId, tableId, tableTitle }) => { // mapping is { sourceColumn: targetField }
-  const mappingEntries = Object.entries(mapping);  // if mapping is empty, no line items to create — skip the loop entirely
-  if (mappingEntries.length === 0) return [];  
-
-  return rows.map((row, rowIndex) => {  // for each row, build a line item based on the mapping
-    const lineItem = {                     // base fields for every line item
-      userId,
-      pdfTableId:      tableId,
-      sourceTableTitle: tableTitle || null,
-      rowSourceId:     row.id || null,
-      rowIndex:        row.rowIndex ?? rowIndex,
-    };
-    for (const [sourceColumn, targetField] of mappingEntries) {
-      lineItem[targetField] = row.rowData?.[sourceColumn] ?? null;
-    }
-    return lineItem;
-  });
-};
-
 // ─── syncUploadTables — OPTIMIZED ────────────────────────────────────────────
 //  batch all reads up-front, then process tables with minimal queries
 
@@ -154,7 +158,7 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
       }
     }
 
-    // ── Batch delete stale tables ─────────────────────────────────────────────
+
     if (tableIdsToDelete.length > 0) {
       await Promise.all([
         tx.pdfTable.updateMany({
@@ -172,47 +176,75 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
       ]);
     }
 
-    // ── Process each incoming table ───────────────────────────────────────────
-    // Rows to create are collected across all tables, then flushed in ONE createMany.
-    const allRowsToCreate = [];
-    const tableLineItems  = [];  // { tableId, items[] }
-    const changedTableIds = new Set();
 
+    const allRowsToCreate = [];
+    const tableLineItems  = [];
+    const changedTableIds = new Set();
+    const existingTableOps = [];
+    const newTableOps = [];
+
+  
     for (const incomingTable of tables) {
-      // Frontend sends clean data — no normalization needed here.
-      const tableColumns   = Array.isArray(incomingTable.columns) ? incomingTable.columns : [];
-      const tableRows      = Array.isArray(incomingTable.rows)    ? incomingTable.rows    : [];
+      const tableColumns    = Array.isArray(incomingTable.columns) ? incomingTable.columns : [];
+      const tableRows       = Array.isArray(incomingTable.rows)    ? incomingTable.rows    : [];
       const lineItemMapping = incomingTable.lineItemMapping ?? {};
 
-      let tableId = incomingTable.id;
+      const tableId = incomingTable.id;
       const isExistingTable = Boolean(tableId && existingTableIds.has(tableId));
-      const existingMapping = isExistingTable
-        ? existingTableMappingsById.get(tableId) ?? {}
-        : null;
+      const existingMapping = isExistingTable ? existingTableMappingsById.get(tableId) ?? {} : null;
       const hasMappingChanged = !isExistingTable || hashMapping(existingMapping) !== hashMapping(lineItemMapping);
 
       if (isExistingTable) {
-        await tx.pdfTable.update({
-          where: { id: tableId },
-          data: {
-            title:                incomingTable.title || null,
-            columns:              tableColumns,
-            lineItemColumnMapping: lineItemMapping,
-            isDeleted:            false,
-          },
+        existingTableOps.push({
+          updatePromise: tx.pdfTable.update({
+            where: { id: tableId },
+            data: {
+              title: incomingTable.title || null,
+              columns: tableColumns,
+              lineItemColumnMapping: lineItemMapping,
+              isDeleted: false,
+            },
+          }),
+          tableId, incomingTable, tableColumns, tableRows, lineItemMapping, hasMappingChanged,
         });
       } else {
-        const created = await tx.pdfTable.create({
-          data: {
+        newTableOps.push({
+          createData: {
             pdfUploadId: uploadId, userId,
-            title:   incomingTable.title || null,
+            title: incomingTable.title || null,
             columns: tableColumns,
             lineItemColumnMapping: lineItemMapping,
           },
-          select: { id: true },
+          incomingTable, tableRows, lineItemMapping, hasMappingChanged,
         });
-        tableId = created.id;
       }
+    }
+
+    // Pass 2 — batch fire
+    await Promise.all(existingTableOps.map(op => op.updatePromise));
+
+    const createdTables = await Promise.all(
+      newTableOps.map(op =>
+        tx.pdfTable.create({ data: op.createData, select: { id: true } })
+      )
+    );
+
+    const resolvedNewTableOps = newTableOps.map((op, i) => ({
+      ...op,
+      tableId: createdTables[i].id,
+    }));
+
+    const allTableOps = [
+      ...existingTableOps,
+      ...resolvedNewTableOps,
+    ];
+
+    // Pass 3 — row operations (parallel per table)
+    const rowDeletePromises = [];
+    const rowUpdatePromises = [];
+
+    for (const op of allTableOps) {
+      const { tableId, tableRows, lineItemMapping, hasMappingChanged, incomingTable } = op;
 
       const existingRowIds = new Set(existingRowsByTableId.get(tableId) ?? []);
       const incomingRowIds = new Set(
@@ -221,28 +253,32 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
 
       const rowIdsToDelete = [...existingRowIds].filter(id => !incomingRowIds.has(id));
       if (rowIdsToDelete.length > 0) {
-        await tx.pdfTableRow.updateMany({
-          where: { id: { in: rowIdsToDelete }, pdfTableId: tableId },
-          data: { isDeleted: true },
-        });
+        rowDeletePromises.push(
+          tx.pdfTableRow.updateMany({
+            where: { id: { in: rowIdsToDelete }, pdfTableId: tableId },
+            data: { isDeleted: true },
+          })
+        );
       }
 
       for (const row of tableRows) {
         if (row.id && existingRowIds.has(row.id)) {
-          await tx.pdfTableRow.update({
-            where: { id: row.id },
-            data: { rowData: row.rowData, rowIndex: row.rowIndex, isDeleted: false },
-          });
+          rowUpdatePromises.push(
+            tx.pdfTableRow.update({
+              where: { id: row.id },
+              data: { rowData: row.rowData, rowIndex: row.rowIndex, isDeleted: false },
+            })
+          );
         } else {
           allRowsToCreate.push({
             pdfTableId: tableId,
-            rowData:    row.rowData,
-            rowIndex:   row.rowIndex,
+            rowData: row.rowData,
+            rowIndex: row.rowIndex,
           });
         }
       }
 
-      // Collect line items — flush after the loop
+      // Line item collection
       if (hasMappingChanged) {
         const items = buildLineItemRecords({
           rows: tableRows,
@@ -256,6 +292,8 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
         if (items.length > 0) tableLineItems.push({ tableId, items });
       }
     }
+
+    await Promise.all([...rowDeletePromises, ...rowUpdatePromises]);
 
     // ── Batch create new rows (one createMany for all tables) ─────────────────
     if (allRowsToCreate.length > 0) {
