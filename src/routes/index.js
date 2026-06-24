@@ -9,6 +9,7 @@ const partnerRoutes = require('./partner.routes');
 const formsRoutes = require('./forms.routes');
 const customerRoutes = require('./customer.routes');
 const opportunityRoutes = require('./opportunity.routes');
+const quoteRoutes = require('./quote.routes');
 
 router.get('/health', (req, res) => {
   return res.status(200).json({
@@ -27,5 +28,6 @@ router.use('/partners', partnerRoutes);
 router.use('/forms', formsRoutes);
 router.use('/customers', customerRoutes);
 router.use('/opportunities', opportunityRoutes);
+router.use('/quotes', quoteRoutes);
 
 module.exports = router;

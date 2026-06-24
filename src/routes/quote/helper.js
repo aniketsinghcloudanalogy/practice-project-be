@@ -59,26 +59,17 @@ const buildSyncTablesPayload = (createdTables, extractedTables) =>
   });
 
 const createQuoteForUser = async (userId, name, pdfUrl = null) => {
-
-
-  try {
-    return await prisma.$transaction(async (tx) => {
-      const { _max } = await tx.quote.aggregate({
-        where: { userId },
-        _max: { quote_number: true },
-      });
-      return tx.quote.create({
-        data: { userId, name, pdf_url: pdfUrl, quote_number: (_max.quote_number ?? 0) + 1 },
-        select: QUOTE_SELECT,
-      });
+  return prisma.$transaction(async (tx) => {
+    const { _max } = await tx.quote.aggregate({
+      where: { userId },
+      _max: { quote_number: true },
     });
-  } catch (error) {
-    const isRetryable = error?.code === 'P2002' || error?.code === 'P2034';
-    if (!isRetryable || attempt === MAX_RETRIES) throw error;
-  }
 
-
-  throw new ApiError(500, 'Unable to create quote');
+    return tx.quote.create({
+      data: { userId, name, pdf_url: pdfUrl, quote_number: (_max.quote_number ?? 0) + 1 },
+      select: QUOTE_SELECT,
+    });
+  });
 };
 
 
@@ -101,7 +92,8 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
       statusCode === 401 || statusCode === 403 ? 'Groq API authentication failed'
         : statusCode === 429 ? 'Groq API rate limit exceeded'
           : error.message || 'Groq API failure';
-    throw new ApiError(502, message);
+    const mappedStatusCode = statusCode === 429 ? 429 : 502;
+    throw new ApiError(mappedStatusCode, message);
   }
 
   const processResult = await processUploadedPdf({
@@ -128,7 +120,10 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
     data: { quote_id: quoteId, quote_file_id: createdQuoteFile.id },
   });
 
-  return { quoteFile: createdQuoteFile, lineItemCount: count };
+  return {
+    quoteFile: createdQuoteFile,
+    lineItemCount: count,
+  };
 };
 
 
@@ -136,9 +131,12 @@ const createQuoteWithUploads = async ({ userId, name, files }) => {
   const quote = await createQuoteForUser(userId, name, files[0]?.path ?? null);
 
   try {
-    const results = await Promise.all(
-      files.map((file) => processSingleFile({ file, userId, quoteId: quote.id }))
-    );
+    const results = [];
+
+    for (const file of files) {
+      const result = await processSingleFile({ file, userId, quoteId: quote.id });
+      results.push(result);
+    }
 
     return {
       quote: {
@@ -150,6 +148,17 @@ const createQuoteWithUploads = async ({ userId, name, files }) => {
       files: results.map((r) => r.quoteFile),
       lineItemCount: results.reduce((sum, r) => sum + r.lineItemCount, 0),
     };
+  } catch (error) {
+    try {
+      await prisma.quote.delete({ where: { id: quote.id } });
+    } catch (rollbackError) {
+      console.error('Failed to rollback quote after create failure', {
+        quoteId: quote.id,
+        message: rollbackError?.message,
+      });
+    }
+
+    throw error;
   } finally {
 
     files.forEach((file) => removeLocalFile(file.path));
@@ -169,10 +178,16 @@ const addFilesToExistingQuote = async ({ quoteId, userId, files }) => {
   if (quoteById.userId !== userId) throw new ApiError(403, 'You are not allowed to modify this quote');
   if (quoteById.is_deleted) throw new ApiError(400, 'Quote is deleted');
 
+  const createdQuoteFileIds = [];
+
   try {
-    const results = await Promise.all(
-      files.map((file) => processSingleFile({ file, userId, quoteId: quoteById.id }))
-    );
+    const results = [];
+
+    for (const file of files) {
+      const result = await processSingleFile({ file, userId, quoteId: quoteById.id });
+      results.push(result);
+      createdQuoteFileIds.push(result.quoteFile.id);
+    }
 
     return {
       quote: {
@@ -191,6 +206,28 @@ const addFilesToExistingQuote = async ({ quoteId, userId, files }) => {
       files: results.map((r) => r.quoteFile),
       lineItemCount: results.reduce((sum, r) => sum + r.lineItemCount, 0),
     };
+  } catch (error) {
+    if (createdQuoteFileIds.length > 0) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.lineItem.updateMany({
+            where: { userId, quote_file_id: { in: createdQuoteFileIds } },
+            data: { quote_id: null, quote_file_id: null },
+          });
+
+          await tx.quoteFile.deleteMany({
+            where: { id: { in: createdQuoteFileIds }, quote_id: quoteById.id },
+          });
+        });
+      } catch (rollbackError) {
+        console.error('Failed to rollback quote files after add failure', {
+          quoteId: quoteById.id,
+          message: rollbackError?.message,
+        });
+      }
+    }
+
+    throw error;
   } finally {
     files.forEach((file) => removeLocalFile(file.path));
   }
