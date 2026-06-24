@@ -22,11 +22,7 @@ router.use('/contactus', contactusRoutes);
 router.use('/contacts', contactsRoutes);
 
 router.use('/pdfs', pdfRoutes);
-<<<<<<< HEAD
 router.use('/aipdf', aiPdfRoutes);
-=======
-router.use('/ai-pdf', aiPdfRoutes);
->>>>>>> 7b4a63e (added upload api routes)
 router.use('/partners', partnerRoutes);
 router.use('/forms', formsRoutes);
 router.use('/customers', customerRoutes);

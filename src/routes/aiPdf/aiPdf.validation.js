@@ -1,10 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
-<<<<<<< HEAD
 const { z } = require('zod');
-=======
->>>>>>> 7b4a63e (added upload api routes)
 
 const upload = require('../../config/multer');
 const ApiError = require('../../utils/ApiError');
@@ -49,7 +46,6 @@ const validateUploadedPdf = (req, res, next) => {
   return next();
 };
 
-<<<<<<< HEAD
 const syncRowSchema = z
   .object({
     id: z.string().trim().optional(),
@@ -101,9 +97,4 @@ module.exports = {
   validateUploadedPdf,
   validateSyncPayload,
   validateUploadIdParam,
-=======
-module.exports = {
-  uploadPdf,
-  validateUploadedPdf,
->>>>>>> 7b4a63e (added upload api routes)
 };
