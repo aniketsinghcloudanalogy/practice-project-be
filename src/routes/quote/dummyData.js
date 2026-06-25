@@ -16,6 +16,7 @@ const DUMMY_QUOTE_SEED = {
             { key: 'currency', label: 'Currency' },
             { key: 'department', label: 'Department' },
           ],
+          
           lineItems: [
             {
               lineNumber: '1',
