@@ -50,9 +50,20 @@ const getQuoteDetail = asyncHandler(async (req, res) => {
   );
 });
 
+const seedDummyQuoteData = asyncHandler(async (req, res) => {
+  const result = await quoteModel.seedDummyQuoteData({
+    userId: req.user.id,
+  });
+
+  return res.status(201).json(
+    new ApiResponse(201, 'Dummy quote data created successfully', result)
+  );
+});
+
 module.exports = {
   createQuote,
   addFilesToQuote,
   getQuotes,
-  getQuoteDetail
+  getQuoteDetail,
+  seedDummyQuoteData,
 };

@@ -5,6 +5,7 @@ const ApiError = require('../../utils/ApiError');
 const { extractPdfText } = require('../../utils/pdfExtractor');
 const { extractWithGroq } = require('../../utils/groqClientMultiTabeles');
 const { processUploadedPdf, syncUploadTables } = require('../aiPdf/helper');
+const { DUMMY_QUOTE_SEED } = require('./dummyData');
 
 
 const LINE_ITEM_ALLOWED_FIELDS = new Set([
@@ -30,6 +31,24 @@ const QUOTE_FILE_SELECT = {
   pdf_upload_id: true,
   file_name: true,
   created_at: true,
+};
+
+const LINE_ITEM_SELECT = {
+  id: true,
+  userId: true,
+  quote_id: true,
+  quote_file_id: true,
+  pdfTableId: true,
+  rowIndex: true,
+  lineNumber: true,
+  description: true,
+  quantity: true,
+  unitPrice: true,
+  amount: true,
+  currency: true,
+  status: true,
+  department: true,
+  createdAt: true,
 };
 
 const removeLocalFile = (filePath) => {
@@ -70,6 +89,300 @@ const createQuoteForUser = async (userId, name, pdfUrl = null) => {
       select: QUOTE_SELECT,
     });
   });
+};
+
+const createDummyLineItemData = ({ userId, pdfTableId, rowIndex, lineItem = {} }) => ({
+  userId,
+  pdfTableId,
+  rowIndex: Number.isInteger(lineItem.rowIndex) ? lineItem.rowIndex : rowIndex,
+  lineNumber: lineItem.lineNumber ?? String(rowIndex + 1),
+  description: lineItem.description ?? `Dummy item ${rowIndex + 1}`,
+  quantity: lineItem.quantity ?? '1',
+  unitPrice: lineItem.unitPrice ?? '100',
+  amount: lineItem.amount ?? '100',
+  currency: lineItem.currency ?? 'USD',
+  status: lineItem.status ?? 'PENDING',
+  department: lineItem.department ?? 'General',
+  itemCode: lineItem.itemCode ?? null,
+  employeeId: lineItem.employeeId ?? null,
+  employeeName: lineItem.employeeName ?? null,
+  category: lineItem.category ?? null,
+  email: lineItem.email ?? null,
+  phone: lineItem.phone ?? null,
+  salary: lineItem.salary ?? null,
+  referenceNo: lineItem.referenceNo ?? null,
+  location: lineItem.location ?? null,
+  notes: lineItem.notes ?? null,
+});
+
+const seedDummyQuoteData = async ({ userId }) => {
+  const seedQuotes = Array.isArray(DUMMY_QUOTE_SEED.quotes) ? DUMMY_QUOTE_SEED.quotes : [];
+
+  if (seedQuotes.length === 0) {
+    throw new ApiError(400, 'No dummy quote data found in local seed file');
+  }
+
+  const { _max } = await prisma.quote.aggregate({
+    where: { userId },
+    _max: { quote_number: true },
+  });
+
+  let nextQuoteNumber = (_max.quote_number ?? 0) + 1;
+  const createdQuotes = [];
+  let totalFiles = 0;
+  let totalLineItems = 0;
+
+    for (let quoteIndex = 0; quoteIndex < seedQuotes.length; quoteIndex += 1) {
+      const quoteTemplate = seedQuotes[quoteIndex] || {};
+      const templateFiles = Array.isArray(quoteTemplate.files) ? quoteTemplate.files : [];
+
+      const createdQuote = await prisma.quote.create({
+        data: {
+          userId,
+          name: quoteTemplate.name || `Dummy Quote ${nextQuoteNumber}`,
+          quote_number: nextQuoteNumber,
+          pdf_url: quoteTemplate.pdfUrl || `dummy://quote/${nextQuoteNumber}`,
+        },
+        select: QUOTE_SELECT,
+      });
+
+      const createdFiles = [];
+
+      for (let fileIndex = 0; fileIndex < templateFiles.length; fileIndex += 1) {
+        const fileTemplate = templateFiles[fileIndex] || {};
+        const templateLineItems = Array.isArray(fileTemplate.lineItems) ? fileTemplate.lineItems : [];
+
+        const upload = await prisma.pdfUpload.create({
+          data: {
+            userId,
+            fileName: fileTemplate.fileName || `dummy-quote-${nextQuoteNumber}-file-${fileIndex + 1}.pdf`,
+          },
+          select: { id: true, fileName: true },
+        });
+
+        const table = await prisma.pdfTable.create({
+          data: {
+            userId,
+            pdfUploadId: upload.id,
+            title: fileTemplate.tableTitle || `Dummy Table ${fileIndex + 1}`,
+            columns: Array.isArray(fileTemplate.columns) && fileTemplate.columns.length > 0 ? fileTemplate.columns : [
+              { key: 'lineNumber', label: 'Line Number' },
+              { key: 'description', label: 'Description' },
+              { key: 'quantity', label: 'Quantity' },
+              { key: 'unitPrice', label: 'Unit Price' },
+              { key: 'amount', label: 'Amount' },
+            ],
+            lineItemColumnMapping: {
+              lineNumber: 'lineNumber',
+              description: 'description',
+              quantity: 'quantity',
+              unitPrice: 'unitPrice',
+              amount: 'amount',
+            },
+          },
+          select: { id: true },
+        });
+
+        const quoteFile = await prisma.quoteFile.create({
+          data: {
+            quote_id: createdQuote.id,
+            pdf_upload_id: upload.id,
+            file_name: upload.fileName,
+          },
+          select: QUOTE_FILE_SELECT,
+        });
+
+        const lineItemsSource = templateLineItems.length > 0
+          ? templateLineItems
+          : [{ description: 'Fallback dummy item', quantity: '1', unitPrice: '100', amount: '100' }];
+
+        const lineItemsData = lineItemsSource.map((lineItem, rowIndex) =>
+          createDummyLineItemData({
+            userId,
+            pdfTableId: table.id,
+            rowIndex,
+            lineItem,
+          })
+        );
+
+        await prisma.lineItem.createMany({ data: lineItemsData });
+
+        const insertedLineItems = await prisma.lineItem.findMany({
+          where: {
+            userId,
+            pdfTableId: table.id,
+            isDeleted: false,
+          },
+          orderBy: { rowIndex: 'asc' },
+          select: LINE_ITEM_SELECT,
+        });
+
+        createdFiles.push({
+          quoteFile,
+          pdfTableId: table.id,
+          insertedLineItems,
+          linkedLineItems: 0,
+          pendingLineItems: insertedLineItems.length,
+        });
+
+        totalFiles += 1;
+        totalLineItems += insertedLineItems.length;
+      }
+
+      const linkedFiles = [];
+      let linkedLineItemsForQuote = 0;
+
+      for (const createdFile of createdFiles) {
+        const quoteFileAfterLink = await prisma.quoteFile.update({
+          where: { id: createdFile.quoteFile.id },
+          data: { quote_id: createdQuote.id },
+          select: QUOTE_FILE_SELECT,
+        });
+
+        const lineItemLinkResult = await prisma.lineItem.updateMany({
+          where: {
+            userId,
+            isDeleted: false,
+            pdfTableId: createdFile.pdfTableId,
+          },
+          data: {
+            quote_id: createdQuote.id,
+            quote_file_id: createdFile.quoteFile.id,
+          },
+        });
+
+        const linkedLineItems = await prisma.lineItem.findMany({
+          where: {
+            userId,
+            isDeleted: false,
+            pdfTableId: createdFile.pdfTableId,
+          },
+          orderBy: { rowIndex: 'asc' },
+          select: LINE_ITEM_SELECT,
+        });
+
+        linkedLineItemsForQuote += lineItemLinkResult.count;
+
+        linkedFiles.push({
+          quoteFile: quoteFileAfterLink,
+          pdfTableId: createdFile.pdfTableId,
+          insertedLineItems: linkedLineItems,
+          linkedLineItems: lineItemLinkResult.count,
+          pendingLineItems: 0,
+        });
+      }
+
+      createdQuotes.push({
+        id: createdQuote.id,
+        quoteIndex: createdQuote.quote_number,
+        formattedQuoteNumber: formatQuoteNumber(createdQuote.quote_number),
+        name: createdQuote.name,
+        files: linkedFiles,
+        linkedLineItems: linkedLineItemsForQuote,
+      });
+
+      nextQuoteNumber += 1;
+    }
+
+  return {
+    summary: {
+      quoteCount: seedQuotes.length,
+      fileCount: totalFiles,
+      lineItemCount: totalLineItems,
+      note: 'Quote, quote_file, and line_item links are created in a single API hit.',
+    },
+    quotes: createdQuotes,
+  };
+};
+
+const upsertDummyQuoteLinks = async ({ userId, quoteId, quoteFileIds = [] }) => {
+  const quote = await prisma.quote.findFirst({
+    where: { id: quoteId, userId, is_deleted: false },
+    select: {
+      id: true,
+      quote_number: true,
+      quote_files: {
+        where: { is_deleted: false },
+        select: { id: true, pdf_upload_id: true },
+      },
+    },
+  });
+
+  if (!quote) throw new ApiError(404, 'Quote not found');
+
+  const availableFileIds = new Set(quote.quote_files.map((file) => file.id));
+
+  const selectedQuoteFiles = (quoteFileIds.length > 0
+    ? quote.quote_files.filter((file) => quoteFileIds.includes(file.id))
+    : quote.quote_files);
+
+  if (quoteFileIds.length > 0 && selectedQuoteFiles.length !== quoteFileIds.length) {
+    throw new ApiError(400, 'One or more quoteFileIds are invalid for this quote');
+  }
+
+  if (selectedQuoteFiles.length === 0) {
+    throw new ApiError(400, 'No quote files found for upsert');
+  }
+
+  const selectedIds = selectedQuoteFiles.map((file) => file.id).filter((id) => availableFileIds.has(id));
+
+  const tables = await prisma.pdfTable.findMany({
+    where: {
+      userId,
+      isDeleted: false,
+      pdfUploadId: { in: selectedQuoteFiles.map((file) => file.pdf_upload_id) },
+    },
+    select: { id: true, pdfUploadId: true },
+  });
+
+  const tableIdsByUploadId = tables.reduce((acc, table) => {
+    (acc[table.pdfUploadId] ??= []).push(table.id);
+    return acc;
+  }, {});
+
+  const upsertResult = await prisma.$transaction(async (tx) => {
+    const quoteFileUpdate = await tx.quoteFile.updateMany({
+      where: { id: { in: selectedIds }, is_deleted: false },
+      data: { quote_id: quote.id },
+    });
+
+    let updatedLineItems = 0;
+
+    for (const quoteFile of selectedQuoteFiles) {
+      const tableIds = tableIdsByUploadId[quoteFile.pdf_upload_id] ?? [];
+      if (tableIds.length === 0) continue;
+
+      const updateResult = await tx.lineItem.updateMany({
+        where: {
+          userId,
+          isDeleted: false,
+          pdfTableId: { in: tableIds },
+        },
+        data: {
+          quote_id: quote.id,
+          quote_file_id: quoteFile.id,
+        },
+      });
+
+      updatedLineItems += updateResult.count;
+    }
+
+    return {
+      updatedQuoteFiles: quoteFileUpdate.count,
+      updatedLineItems,
+    };
+  });
+
+  return {
+    quote: {
+      id: quote.id,
+      quoteIndex: quote.quote_number,
+      formattedQuoteNumber: formatQuoteNumber(quote.quote_number),
+    },
+    updatedQuoteFiles: upsertResult.updatedQuoteFiles,
+    updatedLineItems: upsertResult.updatedLineItems,
+    processedQuoteFileIds: selectedIds,
+  };
 };
 
 
@@ -344,6 +657,8 @@ const getQuoteTablesByQuoteId = async (quoteId) =>
 module.exports = {
   createQuoteWithUploads,
   addFilesToExistingQuote,
+  seedDummyQuoteData,
+  upsertDummyQuoteLinks,
   getQuotesByUserId,
   getQuoteDetailById,
   getQuoteTablesByQuoteId,

@@ -105,9 +105,28 @@ const validateQuoteIdParam = (req, res, next) => {
   return next();
 };
 
+const seedDummyQuoteSchema = z.object({
+  quoteCount: z.number().int().min(1).max(20).optional(),
+  filesPerQuote: z.number().int().min(1).max(10).optional(),
+  lineItemsPerFile: z.number().int().min(1).max(200).optional(),
+});
+
+const validateSeedDummyQuote = (req, res, next) => {
+  const parsed = seedDummyQuoteSchema.safeParse(req.body || {});
+
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    return next(new ApiError(400, firstIssue?.message || 'Validation failed'));
+  }
+
+  req.body = parsed.data;
+  return next();
+};
+
 module.exports = {
   uploadQuotePdfs,
   validateCreateQuote,
   validateAddQuoteFiles,
   validateQuoteIdParam,
+  validateSeedDummyQuote,
 };
