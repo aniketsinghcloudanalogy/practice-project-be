@@ -4,15 +4,8 @@ const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const { extractPdfText } = require('../../utils/pdfExtractor');
 const { extractWithGroq } = require('../../utils/groqClientMultiTabeles');
-const { processUploadedPdf, syncUploadTables } = require('../aiPdf/helper');
-const { DUMMY_QUOTE_SEED } = require('./dummyData');
+const { processUploadedPdf } = require('../aiPdf/helper');
 
-
-const LINE_ITEM_ALLOWED_FIELDS = new Set([
-  'lineNumber', 'itemCode', 'employeeId', 'employeeName', 'description',
-  'department', 'category', 'email', 'phone', 'salary', 'quantity',
-  'unitPrice', 'amount', 'currency', 'status', 'referenceNo', 'location', 'notes',
-]);
 
 const QUOTE_SELECT = {
   id: true,
@@ -30,25 +23,8 @@ const QUOTE_FILE_SELECT = {
   quote_id: true,
   pdf_upload_id: true,
   file_name: true,
+  is_Verifed: true,
   created_at: true,
-};
-
-const LINE_ITEM_SELECT = {
-  id: true,
-  userId: true,
-  quote_id: true,
-  quote_file_id: true,
-  pdfTableId: true,
-  rowIndex: true,
-  lineNumber: true,
-  description: true,
-  quantity: true,
-  unitPrice: true,
-  amount: true,
-  currency: true,
-  status: true,
-  department: true,
-  createdAt: true,
 };
 
 const removeLocalFile = (filePath) => {
@@ -57,25 +33,125 @@ const removeLocalFile = (filePath) => {
 
 const formatQuoteNumber = (n) => `QUO-${String(n).padStart(6, '0')}`;
 
-const buildLineItemMapping = (columns = []) =>
-  columns.reduce((mapping, column) => {
-    const key = typeof column?.key === 'string' ? column.key.trim() : '';
-    if (key && LINE_ITEM_ALLOWED_FIELDS.has(key)) mapping[key] = key;
-    return mapping;
-  }, {});
+const enrichQuoteFileVerificationState = (file) => ({
+  ...file,
+  isVerified: Boolean(file?.is_Verifed),
+});
 
+const EXCLUDED_LINE_ITEM_COLUMN_KEYS = new Set([
+  'createdat',
+  'updatedat',
+  'created_at',
+  'updated_at',
+]);
 
-const buildSyncTablesPayload = (createdTables, extractedTables) =>
-  createdTables.map((createdTable, index) => {
-    const { title = null, columns = [], rows = [] } = extractedTables[index] ?? {};
-    return {
-      id: createdTable.tableId,
-      title,
-      columns,
-      lineItemMapping: buildLineItemMapping(columns),
-      rows: rows.map((rowData, rowIndex) => ({ rowData, rowIndex })),
-    };
-  });
+const normalizeRowData = (rowData) => {
+  if (rowData && typeof rowData === 'object' && !Array.isArray(rowData)) {
+    return rowData;
+  }
+
+  return { value: rowData ?? null };
+};
+
+const normalizeColumnName = (column) => {
+  if (typeof column === 'string') {
+    const trimmed = column.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (!column || typeof column !== 'object') return null;
+
+  const candidates = [column.key, column.label, column.title, column.name, column.header, column.field];
+  const match = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+
+  return match ? match.trim() : null;
+};
+
+const isExcludedLineItemColumnName = (name) => {
+  if (typeof name !== 'string') return false;
+  return EXCLUDED_LINE_ITEM_COLUMN_KEYS.has(name.trim().toLowerCase());
+};
+
+const normalizeRowDataForTable = (rowData, columns = []) => {
+  if (rowData && typeof rowData === 'object' && !Array.isArray(rowData)) {
+    return rowData;
+  }
+
+  if (Array.isArray(rowData)) {
+    const columnNames = columns
+      .map((column, index) => normalizeColumnName(column) || `column_${index + 1}`);
+
+    return rowData.reduce((acc, value, index) => {
+      acc[columnNames[index] || `column_${index + 1}`] = value;
+      return acc;
+    }, {});
+  }
+
+  return { value: rowData ?? null };
+};
+
+const collectUniqueColumnNamesFromTable = (table) => {
+  const names = [];
+  const seen = new Set();
+
+  const columns = Array.isArray(table.columns) ? table.columns : [];
+
+  for (const column of columns) {
+    const normalized = normalizeColumnName(column);
+    if (!normalized) continue;
+    if (isExcludedLineItemColumnName(normalized)) continue;
+    const identity = normalized.toLowerCase();
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    names.push(normalized);
+  }
+
+  if (names.length > 0) return names;
+
+  const rows = Array.isArray(table.rows) ? table.rows : [];
+  for (const row of rows) {
+    const rowData = normalizeRowDataForTable(row.rowData, columns);
+    for (const key of Object.keys(rowData)) {
+      const normalized = key.trim();
+      if (!normalized) continue;
+      if (isExcludedLineItemColumnName(normalized)) continue;
+      const identity = normalized.toLowerCase();
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      names.push(normalized);
+    }
+  }
+
+  return names;
+};
+
+const buildExtractedLineItemsFromTables = (tables = []) => {
+  const lineItems = [];
+  const globalSeen = new Set(); // tracks tableId:columnIdentity to prevent true duplicates
+
+  for (const table of tables) {
+    const uniqueColumnNames = collectUniqueColumnNamesFromTable(table);
+
+    for (const columnName of uniqueColumnNames) {
+      const identity = columnName.toLowerCase();
+      const compositeKey = `${table.id}:${identity}`; // scope by table
+      if (globalSeen.has(compositeKey)) continue;
+      globalSeen.add(compositeKey);
+
+      lineItems.push({
+        id: compositeKey,
+        lineNumber: String(lineItems.length + 1),
+        description: columnName,
+        columnName,
+        pdfTableId: table.id,
+        sourceTableTitle: table.title ?? null,
+        rowIndex: lineItems.length,
+      });
+    }
+  }
+
+  return lineItems;
+};
 
 const createQuoteForUser = async (userId, name, pdfUrl = null) => {
   return prisma.$transaction(async (tx) => {
@@ -91,299 +167,6 @@ const createQuoteForUser = async (userId, name, pdfUrl = null) => {
   });
 };
 
-const createDummyLineItemData = ({ userId, pdfTableId, rowIndex, lineItem = {} }) => ({
-  userId,
-  pdfTableId,
-  rowIndex: Number.isInteger(lineItem.rowIndex) ? lineItem.rowIndex : rowIndex,
-  lineNumber: lineItem.lineNumber ?? String(rowIndex + 1),
-  description: lineItem.description ?? `Dummy item ${rowIndex + 1}`,
-  quantity: lineItem.quantity ?? '1',
-  unitPrice: lineItem.unitPrice ?? '100',
-  amount: lineItem.amount ?? '100',
-  currency: lineItem.currency ?? 'USD',
-  status: lineItem.status ?? 'PENDING',
-  department: lineItem.department ?? 'General',
-  itemCode: lineItem.itemCode ?? null,
-  employeeId: lineItem.employeeId ?? null,
-  employeeName: lineItem.employeeName ?? null,
-  category: lineItem.category ?? null,
-  email: lineItem.email ?? null,
-  phone: lineItem.phone ?? null,
-  salary: lineItem.salary ?? null,
-  referenceNo: lineItem.referenceNo ?? null,
-  location: lineItem.location ?? null,
-  notes: lineItem.notes ?? null,
-});
-
-const seedDummyQuoteData = async ({ userId }) => {
-  const seedQuotes = Array.isArray(DUMMY_QUOTE_SEED.quotes) ? DUMMY_QUOTE_SEED.quotes : [];
-
-  if (seedQuotes.length === 0) {
-    throw new ApiError(400, 'No dummy quote data found in local seed file');
-  }
-
-  const { _max } = await prisma.quote.aggregate({
-    where: { userId },
-    _max: { quote_number: true },
-  });
-
-  let nextQuoteNumber = (_max.quote_number ?? 0) + 1;
-  const createdQuotes = [];
-  let totalFiles = 0;
-  let totalLineItems = 0;
-
-    for (let quoteIndex = 0; quoteIndex < seedQuotes.length; quoteIndex += 1) {
-      const quoteTemplate = seedQuotes[quoteIndex] || {};
-      const templateFiles = Array.isArray(quoteTemplate.files) ? quoteTemplate.files : [];
-
-      const createdQuote = await prisma.quote.create({
-        data: {
-          userId,
-          name: quoteTemplate.name || `Dummy Quote ${nextQuoteNumber}`,
-          quote_number: nextQuoteNumber,
-          pdf_url: quoteTemplate.pdfUrl || `dummy://quote/${nextQuoteNumber}`,
-        },
-        select: QUOTE_SELECT,
-      });
-
-      const createdFiles = [];
-
-      for (let fileIndex = 0; fileIndex < templateFiles.length; fileIndex += 1) {
-        const fileTemplate = templateFiles[fileIndex] || {};
-        const templateLineItems = Array.isArray(fileTemplate.lineItems) ? fileTemplate.lineItems : [];
-
-        const upload = await prisma.pdfUpload.create({
-          data: {
-            userId,
-            fileName: fileTemplate.fileName || `dummy-quote-${nextQuoteNumber}-file-${fileIndex + 1}.pdf`,
-          },
-          select: { id: true, fileName: true },
-        });
-
-        const table = await prisma.pdfTable.create({
-          data: {
-            userId,
-            pdfUploadId: upload.id,
-            title: fileTemplate.tableTitle || `Dummy Table ${fileIndex + 1}`,
-            columns: Array.isArray(fileTemplate.columns) && fileTemplate.columns.length > 0 ? fileTemplate.columns : [
-              { key: 'lineNumber', label: 'Line Number' },
-              { key: 'description', label: 'Description' },
-              { key: 'quantity', label: 'Quantity' },
-              { key: 'unitPrice', label: 'Unit Price' },
-              { key: 'amount', label: 'Amount' },
-            ],
-            lineItemColumnMapping: {
-              lineNumber: 'lineNumber',
-              description: 'description',
-              quantity: 'quantity',
-              unitPrice: 'unitPrice',
-              amount: 'amount',
-            },
-          },
-          select: { id: true },
-        });
-
-        const quoteFile = await prisma.quoteFile.create({
-          data: {
-            quote_id: createdQuote.id,
-            pdf_upload_id: upload.id,
-            file_name: upload.fileName,
-          },
-          select: QUOTE_FILE_SELECT,
-        });
-
-        const lineItemsSource = templateLineItems.length > 0
-          ? templateLineItems
-          : [{ description: 'Fallback dummy item', quantity: '1', unitPrice: '100', amount: '100' }];
-
-        const lineItemsData = lineItemsSource.map((lineItem, rowIndex) =>
-          createDummyLineItemData({
-            userId,
-            pdfTableId: table.id,
-            rowIndex,
-            lineItem,
-          })
-        );
-
-        await prisma.lineItem.createMany({ data: lineItemsData });
-
-        const insertedLineItems = await prisma.lineItem.findMany({
-          where: {
-            userId,
-            pdfTableId: table.id,
-            isDeleted: false,
-          },
-          orderBy: { rowIndex: 'asc' },
-          select: LINE_ITEM_SELECT,
-        });
-
-        createdFiles.push({
-          quoteFile,
-          pdfTableId: table.id,
-          insertedLineItems,
-          linkedLineItems: 0,
-          pendingLineItems: insertedLineItems.length,
-        });
-
-        totalFiles += 1;
-        totalLineItems += insertedLineItems.length;
-      }
-
-      const linkedFiles = [];
-      let linkedLineItemsForQuote = 0;
-
-      for (const createdFile of createdFiles) {
-        const quoteFileAfterLink = await prisma.quoteFile.update({
-          where: { id: createdFile.quoteFile.id },
-          data: { quote_id: createdQuote.id },
-          select: QUOTE_FILE_SELECT,
-        });
-
-        const lineItemLinkResult = await prisma.lineItem.updateMany({
-          where: {
-            userId,
-            isDeleted: false,
-            pdfTableId: createdFile.pdfTableId,
-          },
-          data: {
-            quote_id: createdQuote.id,
-            quote_file_id: createdFile.quoteFile.id,
-          },
-        });
-
-        const linkedLineItems = await prisma.lineItem.findMany({
-          where: {
-            userId,
-            isDeleted: false,
-            pdfTableId: createdFile.pdfTableId,
-          },
-          orderBy: { rowIndex: 'asc' },
-          select: LINE_ITEM_SELECT,
-        });
-
-        linkedLineItemsForQuote += lineItemLinkResult.count;
-
-        linkedFiles.push({
-          quoteFile: quoteFileAfterLink,
-          pdfTableId: createdFile.pdfTableId,
-          insertedLineItems: linkedLineItems,
-          linkedLineItems: lineItemLinkResult.count,
-          pendingLineItems: 0,
-        });
-      }
-
-      createdQuotes.push({
-        id: createdQuote.id,
-        quoteIndex: createdQuote.quote_number,
-        formattedQuoteNumber: formatQuoteNumber(createdQuote.quote_number),
-        name: createdQuote.name,
-        files: linkedFiles,
-        linkedLineItems: linkedLineItemsForQuote,
-      });
-
-      nextQuoteNumber += 1;
-    }
-
-  return {
-    summary: {
-      quoteCount: seedQuotes.length,
-      fileCount: totalFiles,
-      lineItemCount: totalLineItems,
-      note: 'Quote, quote_file, and line_item links are created in a single API hit.',
-    },
-    quotes: createdQuotes,
-  };
-};
-
-const upsertDummyQuoteLinks = async ({ userId, quoteId, quoteFileIds = [] }) => {
-  const quote = await prisma.quote.findFirst({
-    where: { id: quoteId, userId, is_deleted: false },
-    select: {
-      id: true,
-      quote_number: true,
-      quote_files: {
-        where: { is_deleted: false },
-        select: { id: true, pdf_upload_id: true },
-      },
-    },
-  });
-
-  if (!quote) throw new ApiError(404, 'Quote not found');
-
-  const availableFileIds = new Set(quote.quote_files.map((file) => file.id));
-
-  const selectedQuoteFiles = (quoteFileIds.length > 0
-    ? quote.quote_files.filter((file) => quoteFileIds.includes(file.id))
-    : quote.quote_files);
-
-  if (quoteFileIds.length > 0 && selectedQuoteFiles.length !== quoteFileIds.length) {
-    throw new ApiError(400, 'One or more quoteFileIds are invalid for this quote');
-  }
-
-  if (selectedQuoteFiles.length === 0) {
-    throw new ApiError(400, 'No quote files found for upsert');
-  }
-
-  const selectedIds = selectedQuoteFiles.map((file) => file.id).filter((id) => availableFileIds.has(id));
-
-  const tables = await prisma.pdfTable.findMany({
-    where: {
-      userId,
-      isDeleted: false,
-      pdfUploadId: { in: selectedQuoteFiles.map((file) => file.pdf_upload_id) },
-    },
-    select: { id: true, pdfUploadId: true },
-  });
-
-  const tableIdsByUploadId = tables.reduce((acc, table) => {
-    (acc[table.pdfUploadId] ??= []).push(table.id);
-    return acc;
-  }, {});
-
-  const upsertResult = await prisma.$transaction(async (tx) => {
-    const quoteFileUpdate = await tx.quoteFile.updateMany({
-      where: { id: { in: selectedIds }, is_deleted: false },
-      data: { quote_id: quote.id },
-    });
-
-    let updatedLineItems = 0;
-
-    for (const quoteFile of selectedQuoteFiles) {
-      const tableIds = tableIdsByUploadId[quoteFile.pdf_upload_id] ?? [];
-      if (tableIds.length === 0) continue;
-
-      const updateResult = await tx.lineItem.updateMany({
-        where: {
-          userId,
-          isDeleted: false,
-          pdfTableId: { in: tableIds },
-        },
-        data: {
-          quote_id: quote.id,
-          quote_file_id: quoteFile.id,
-        },
-      });
-
-      updatedLineItems += updateResult.count;
-    }
-
-    return {
-      updatedQuoteFiles: quoteFileUpdate.count,
-      updatedLineItems,
-    };
-  });
-
-  return {
-    quote: {
-      id: quote.id,
-      quoteIndex: quote.quote_number,
-      formattedQuoteNumber: formatQuoteNumber(quote.quote_number),
-    },
-    updatedQuoteFiles: upsertResult.updatedQuoteFiles,
-    updatedLineItems: upsertResult.updatedLineItems,
-    processedQuoteFileIds: selectedIds,
-  };
-};
 
 
 
@@ -415,27 +198,76 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
     extractedData,
   });
 
-  const extractedTables = Array.isArray(extractedData?.tables) ? extractedData.tables : [];
-
-  await syncUploadTables({
-    uploadId: processResult.uploadId,
-    userId,
-    tables: buildSyncTablesPayload(processResult.tables, extractedTables),
-  });
-
   const createdQuoteFile = await prisma.quoteFile.create({
     data: { quote_id: quoteId, pdf_upload_id: processResult.uploadId, file_name: file.originalname },
     select: QUOTE_FILE_SELECT,
   });
 
-  const { count } = await prisma.lineItem.updateMany({
-    where: { userId, pdfTableId: { in: processResult.tables.map((t) => t.tableId) }, isDeleted: false },
-    data: { quote_id: quoteId, quote_file_id: createdQuoteFile.id },
-  });
+  const createdTableIds = processResult.tables.map((table) => table.tableId);
+
+  const storedTables = createdTableIds.length > 0
+    ? await prisma.pdfTable.findMany({
+      where: {
+        id: { in: createdTableIds },
+        isDeleted: false,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        columns: true,
+        rows: {
+          where: { isDeleted: false },
+          orderBy: { rowIndex: 'asc' },
+          select: {
+            id: true,
+            rowData: true,
+            rowIndex: true,
+          },
+        },
+      },
+    })
+    : [];
+
+  const lineItems = buildExtractedLineItemsFromTables(storedTables);
+
+
+
+ 
+  if (lineItems.length > 0) {
+    await prisma.lineItem.createMany({
+      data: lineItems.map((item) => ({
+        userId,
+        quote_id: quoteId,
+        quote_file_id: createdQuoteFile.id,
+        pdfTableId: item.pdfTableId,
+        sourceTableTitle: item.sourceTableTitle,
+        lineNumber: item.lineNumber,
+        description: item.columnName,   // columnName → description field
+        rowIndex: item.rowIndex,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  const tables = storedTables.map((table) => ({
+    id: table.id,
+    title: table.title,
+    columns: table.columns,
+    rows: table.rows.map((row) => ({
+      id: row.id,
+      rowIndex: row.rowIndex ?? null,
+      rowData: normalizeRowDataForTable(row.rowData, Array.isArray(table.columns) ? table.columns : []),
+    })),
+  }));
 
   return {
-    quoteFile: createdQuoteFile,
-    lineItemCount: count,
+    file: {
+      ...createdQuoteFile,
+      tables,
+      lineItems,
+    },
+    extractedRowCount: lineItems.length,
   };
 };
 
@@ -458,8 +290,8 @@ const createQuoteWithUploads = async ({ userId, name, files }) => {
         pdfUrl: quote.pdf_url,
         formattedQuoteNumber: formatQuoteNumber(quote.quote_number),
       },
-      files: results.map((r) => r.quoteFile),
-      lineItemCount: results.reduce((sum, r) => sum + r.lineItemCount, 0),
+      files: results.map((r) => r.file),
+      lineItemCount: results.reduce((sum, r) => sum + r.extractedRowCount, 0),
     };
   } catch (error) {
     try {
@@ -499,7 +331,7 @@ const addFilesToExistingQuote = async ({ quoteId, userId, files }) => {
     for (const file of files) {
       const result = await processSingleFile({ file, userId, quoteId: quoteById.id });
       results.push(result);
-      createdQuoteFileIds.push(result.quoteFile.id);
+      createdQuoteFileIds.push(result.file.id);
     }
 
     return {
@@ -516,18 +348,13 @@ const addFilesToExistingQuote = async ({ quoteId, userId, files }) => {
         pdfUrl: quoteById.pdf_url,
         formattedQuoteNumber: formatQuoteNumber(quoteById.quote_number),
       },
-      files: results.map((r) => r.quoteFile),
-      lineItemCount: results.reduce((sum, r) => sum + r.lineItemCount, 0),
+      files: results.map((r) => r.file),
+      lineItemCount: results.reduce((sum, r) => sum + r.extractedRowCount, 0),
     };
   } catch (error) {
     if (createdQuoteFileIds.length > 0) {
       try {
         await prisma.$transaction(async (tx) => {
-          await tx.lineItem.updateMany({
-            where: { userId, quote_file_id: { in: createdQuoteFileIds } },
-            data: { quote_id: null, quote_file_id: null },
-          });
-
           await tx.quoteFile.deleteMany({
             where: { id: { in: createdQuoteFileIds }, quote_id: quoteById.id },
           });
@@ -555,24 +382,47 @@ const getQuotesByUserId = async (userId) => {
       status: true, created_at: true,
       quote_files: {
         where: { is_deleted: false },
-        select: { id: true },
+        select: { id: true, pdf_upload_id: true },
       },
       _count: { select: { quote_files: { where: { is_deleted: false } } } },
     },
   });
 
-  const quoteIds = quotes.map((q) => q.id);
+  const uploadIds = [...new Set(
+    quotes.flatMap((quote) => quote.quote_files.map((file) => file.pdf_upload_id))
+  )];
 
-  const lineItemCounts = quoteIds.length
-    ? await prisma.lineItem.groupBy({
-      by: ['quote_id'],
-      where: { quote_id: { in: quoteIds }, isDeleted: false },
-      _count: true,
+  const tableColumnsByUpload = uploadIds.length
+    ? await prisma.pdfTable.findMany({
+      where: {
+        pdfUploadId: { in: uploadIds },
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        pdfUploadId: true,
+        title: true,
+        columns: true,
+        rows: {
+          where: { isDeleted: false },
+          orderBy: { rowIndex: 'asc' },
+          select: {
+            id: true,
+            rowData: true,
+            rowIndex: true,
+          },
+        },
+      },
     })
     : [];
 
-  const countByQuoteId = lineItemCounts.reduce((acc, { quote_id, _count }) => {
-    if (quote_id) acc[quote_id] = _count;
+  const tablesByUploadId = tableColumnsByUpload.reduce((acc, table) => {
+    (acc[table.pdfUploadId] ??= []).push(table);
+    return acc;
+  }, {});
+
+  const columnCountByUploadId = Object.entries(tablesByUploadId).reduce((acc, [uploadId, tables]) => {
+    acc[uploadId] = buildExtractedLineItemsFromTables(tables).length;
     return acc;
   }, {});
 
@@ -584,7 +434,10 @@ const getQuotesByUserId = async (userId) => {
     pdfUrl: quote.pdf_url,
     status: quote.status,
     fileCount: quote._count.quote_files,
-    lineItemCount: countByQuoteId[quote.id] ?? 0,
+    lineItemCount: quote.quote_files.reduce(
+      (sum, file) => sum + (columnCountByUploadId[file.pdf_upload_id] ?? 0),
+      0
+    ),
     createdAt: quote.created_at,
   }));
 };
@@ -600,7 +453,7 @@ const getQuoteDetailById = async (quoteId, userId) => {
         orderBy: { created_at: 'asc' },
         select: {
           id: true, quote_id: true, pdf_upload_id: true,
-          file_name: true, created_at: true, updated_at: true,
+          file_name: true, is_Verifed: true, created_at: true, updated_at: true,
         },
       },
       _count: { select: { quote_files: { where: { is_deleted: false } } } },
@@ -609,16 +462,39 @@ const getQuoteDetailById = async (quoteId, userId) => {
 
   if (!quote) throw new ApiError(404, 'Quote not found');
 
-  const allLineItems = await prisma.lineItem.findMany({
-    where: { quote_id: quote.id, isDeleted: false },
-    orderBy: { rowIndex: 'asc' },
-  });
+  const uploadIds = quote.quote_files.map((file) => file.pdf_upload_id);
 
-  const lineItemsByFileId = allLineItems.reduce((acc, item) => {
-    if (!item.quote_file_id) return acc;
-    (acc[item.quote_file_id] ??= []).push(item);
+  const tables = uploadIds.length > 0
+    ? await prisma.pdfTable.findMany({
+      where: {
+        isDeleted: false,
+        pdfUploadId: { in: uploadIds },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        pdfUploadId: true,
+        title: true,
+        columns: true,
+        rows: {
+          where: { isDeleted: false },
+          orderBy: { rowIndex: 'asc' },
+          select: {
+            id: true,
+            rowData: true,
+            rowIndex: true,
+          },
+        },
+      },
+    })
+    : [];
+
+  const tablesByUploadId = tables.reduce((acc, table) => {
+    (acc[table.pdfUploadId] ??= []).push(table);
     return acc;
   }, {});
+
+  let totalExtractedRows = 0;
 
   return {
     quote: {
@@ -628,13 +504,29 @@ const getQuoteDetailById = async (quoteId, userId) => {
       name: quote.name, pdfUrl: quote.pdf_url, status: quote.status,
       createdAt: quote.created_at, updatedAt: quote.updated_at,
     },
-    files: quote.quote_files.map((file) => ({
-      ...file,
-      lineItems: lineItemsByFileId[file.id] ?? [],
-    })),
+    files: quote.quote_files.map((file) => {
+      const fileTables = tablesByUploadId[file.pdf_upload_id] ?? [];
+      const lineItems = buildExtractedLineItemsFromTables(fileTables);
+      totalExtractedRows += lineItems.length;
+
+      return {
+        ...enrichQuoteFileVerificationState(file),
+        lineItems,
+        tables: fileTables.map((table) => ({
+          id: table.id,
+          title: table.title,
+          columns: table.columns,
+          rows: table.rows.map((row) => ({
+            id: row.id,
+            rowIndex: row.rowIndex ?? null,
+            rowData: normalizeRowDataForTable(row.rowData, Array.isArray(table.columns) ? table.columns : []),
+          })),
+        })),
+      };
+    }),
     counts: {
       fileCount: quote._count.quote_files,
-      lineItemCount: allLineItems.length,
+      lineItemCount: totalExtractedRows,
     },
   };
 };
@@ -644,22 +536,60 @@ const getQuoteTablesByQuoteId = async (quoteId) =>
   prisma.pdfTable.findMany({
     where: { pdfUpload: { quoteFiles: { some: { quote_id: quoteId } } } },
     include: {
-      pdfTableRows: {
-        where:
-          { is_deleted: false },
-        orderBy: {
-          row_index: 'asc'
-        }
+      rows: {
+        where: { isDeleted: false },
+        orderBy: { rowIndex: 'asc' },
       },
     },
   });
 
+const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
+  const quoteFile = await prisma.quoteFile.findFirst({
+    where: {
+      id: quoteFileId,
+      quote_id: quoteId,
+      quote: { userId },
+    },
+    select: {
+      id: true,
+      quote_id: true,
+      pdf_upload_id: true,
+      file_name: true,
+      is_Verifed: true,
+      created_at: true,
+      updated_at: true,
+    },
+  });
+
+  if (!quoteFile) {
+    throw new ApiError(404, 'Quote file not found');
+  }
+
+  if (quoteFile.is_Verifed) {
+    return { file: enrichQuoteFileVerificationState(quoteFile) };
+  }
+
+  const updatedQuoteFile = await prisma.quoteFile.update({
+    where: { id: quoteFile.id },
+    data: { is_Verifed: true },
+    select: {
+      id: true,
+      quote_id: true,
+      pdf_upload_id: true,
+      file_name: true,
+      is_Verifed: true,
+      created_at: true,
+      updated_at: true,
+    },
+  });
+
+  return { file: enrichQuoteFileVerificationState(updatedQuoteFile) };
+};
 module.exports = {
   createQuoteWithUploads,
   addFilesToExistingQuote,
-  seedDummyQuoteData,
-  upsertDummyQuoteLinks,
   getQuotesByUserId,
   getQuoteDetailById,
   getQuoteTablesByQuoteId,
+  verifyQuoteFileById,
 };

@@ -10,7 +10,7 @@ const {
 } = require('./aiPdf/aiPdf.validation');
 
 router.use(protect);
-
+0
 // Upload + extract
 router.route('/extract').post(uploadPdf, validateUploadedPdf, aiPdfController.extract);
 
@@ -29,3 +29,4 @@ router
 	.put(validateUploadIdParam, validateSyncPayload, aiPdfController.syncUpload);
 
 module.exports = router;
+0

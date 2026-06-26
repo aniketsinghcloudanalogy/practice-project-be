@@ -14,6 +14,7 @@ const createQuote = asyncHandler(async (req, res) => {
       quote: result.quote,
       files: result.files,
       lineItemCount: result.lineItemCount,
+      extractedRowCount: result.lineItemCount,
     })
   );
 });
@@ -30,6 +31,7 @@ const addFilesToQuote = asyncHandler(async (req, res) => {
       quote: result.quote,
       files: result.files,
       lineItemCount: result.lineItemCount,
+      extractedRowCount: result.lineItemCount,
     })
   );
 });
@@ -50,20 +52,23 @@ const getQuoteDetail = asyncHandler(async (req, res) => {
   );
 });
 
-const seedDummyQuoteData = asyncHandler(async (req, res) => {
-  const result = await quoteModel.seedDummyQuoteData({
+const verifyQuoteFile = asyncHandler(async (req, res) => {
+  const result = await quoteModel.verifyQuoteFileById({
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
     userId: req.user.id,
   });
 
-  return res.status(201).json(
-    new ApiResponse(201, 'Dummy quote data created successfully', result)
+  return res.status(200).json(
+    new ApiResponse(200, 'Quote file verified successfully', result)
   );
 });
+  
 
 module.exports = {
   createQuote,
   addFilesToQuote,
   getQuotes,
   getQuoteDetail,
-  seedDummyQuoteData,
+  verifyQuoteFile,
 };

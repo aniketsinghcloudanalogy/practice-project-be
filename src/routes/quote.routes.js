@@ -7,7 +7,7 @@ const {
   validateCreateQuote,
   validateAddQuoteFiles,
   validateQuoteIdParam,
-  validateSeedDummyQuote,
+  validateQuoteFileIdParam,
 } = require('./quote/quote.validation');
 
 router.use(protect);
@@ -16,10 +16,6 @@ router
   .route('/')
   .post(uploadQuotePdfs, validateCreateQuote, quoteController.createQuote)
   .get(quoteController.getQuotes);
-
-router
-  .route('/dummy/seed')
-  .post(validateSeedDummyQuote, quoteController.seedDummyQuoteData);
 
 router
   .route('/:quoteId')
@@ -32,6 +28,14 @@ router
     uploadQuotePdfs,
     validateAddQuoteFiles,
     quoteController.addFilesToQuote
+  );
+
+router
+  .route('/:quoteId/files/:quoteFileId/verify')
+  .patch(
+    validateQuoteIdParam,
+    validateQuoteFileIdParam,
+    quoteController.verifyQuoteFile
   );
 
 module.exports = router;
