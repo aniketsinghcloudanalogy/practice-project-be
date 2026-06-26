@@ -12,6 +12,31 @@ const CUSTOMER_SELECT = {
   isDeleted: true,
   createdAt: true,
   updatedAt: true,
+  addresses: {
+    select: {
+      id: true,
+      addressLine: true,
+      city: true,
+      state: true,
+      zipCode: true,
+      country: true,
+      type: true,
+      isDefaultShipping: true,
+      isDefaultBilling: true,
+    },
+  },
+  contacts: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      primaryContact: true,
+      secondaryContact: true,
+    },
+    take: 1,
+    orderBy: { createdAt: 'asc' },
+  },
 };
 
 const createCustomer = (userId, data) => {

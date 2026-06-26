@@ -33,12 +33,13 @@ model User {
   pdfUploads PdfUpload[]
   pdfTables  PdfTable[]
   lineItems  LineItem[]
+  profitabilty_line_items Profitabilty_line_items[]
 
   formSubmissions FormSubmission[]
   quotes          Quote[]
   customers       Customer[]
   opportunities   Opportunity[]
-  
+  addresses       Address[]
 
   @@unique([authProvider, providerAccountId])
   @@index([organizationId])
@@ -121,6 +122,7 @@ model PdfTable {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
   lineItems             LineItem[]
+  profitabilty_line_items Profitabilty_line_items[]
   pdfUpload             PdfUpload     @relation(fields: [pdfUploadId], references: [id], onDelete: Cascade)
   user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   rows                  PdfTableRow[]
@@ -223,13 +225,15 @@ model UserContact {
   notes            String?
   contactType      ContactType @default(PRIMARY)
   userId           String
+  customerId       String?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  customer         Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   @@unique([userId, email], name: "user_contact_user_email_unique")
   @@unique([userId, primaryContact], name: "user_contact_user_primary_contact_unique")
   @@index([userId])
+  @@index([customerId])
   @@index([email])
   @@index([contactType])
 }
@@ -289,6 +293,7 @@ model Quote {
   user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   quote_files  QuoteFile[]
   lineItems    LineItem[]
+  profitabilty_line_items Profitabilty_line_items[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -305,11 +310,13 @@ model QuoteFile {
   pdf_upload_id String
   file_name     String
   is_deleted    Boolean    @default(false)
+  is_Verifed    Boolean    @default(false)
   created_at    DateTime   @default(now())
   updated_at    DateTime   @updatedAt
   quote         Quote      @relation(fields: [quote_id], references: [id], onDelete: Cascade)
   pdf_upload    PdfUpload  @relation(fields: [pdf_upload_id], references: [id], onDelete: Cascade)
   lineItems     LineItem[]
+  profitabilty_line_items Profitabilty_line_items[]
 
   @@index([quote_id])
   @@index([pdf_upload_id])
@@ -359,6 +366,51 @@ model LineItem {
   @@index([userId, isDeleted, createdAt(sort: Desc)])
 }
 
+model Profitabilty_line_items {
+  id               String     @id @default(cuid())
+  userId           String
+  quote_id         String?
+  quote_file_id    String?
+  pdfTableId       String
+  sourceTableTitle String?
+  rowSourceId      String?
+  rowIndex         Int?
+  lineNumber       String?
+  itemCode         String?
+  employeeId       String?
+  employeeName     String?
+  description      String?
+  department       String?
+  category         String?
+  email            String?
+  phone            String?
+  salary           String?
+  quantity         String?
+  unitPrice        String?
+  amount           String?
+  currency         String?
+  status           String?
+  referenceNo      String?
+  location         String?
+  notes            String?
+  isDeleted        Boolean    @default(false)
+  is_Verifed       Boolean    @default(false)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quote            Quote?     @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  pdfTable         PdfTable   @relation(fields: [pdfTableId], references: [id], onDelete: Cascade)
+  quoteFile        QuoteFile? @relation(fields: [quote_file_id], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([quote_id])
+  @@index([pdfTableId])
+  @@index([isDeleted])
+  @@index([pdfTableId, userId, isDeleted])
+  @@index([quote_id, isDeleted])
+  @@index([userId, isDeleted, createdAt(sort: Desc)])
+}
+
 //customer schema
 model Customer {
   id            String        @id @default(cuid())
@@ -374,6 +426,8 @@ model Customer {
   updatedAt     DateTime      @updatedAt
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   opportunities Opportunity[]
+  addresses     Address[]
+  contacts      UserContact[]
 
   @@index([userId])
   @@index([isDeleted])
@@ -414,6 +468,36 @@ model Opportunity {
   @@index([customerId])
   @@index([opportunityId])
   @@index([isDeleted])
+}
+
+//address schema
+model Address {
+  id                String      @id @default(cuid())
+  userId            String
+  customerId        String?
+  addressLine       String
+  city              String
+  state             String
+  zipCode           String
+  country           String
+  type              AddressType
+  isDefaultShipping Boolean     @default(false)
+  isDefaultBilling  Boolean     @default(false)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([customerId])
+  @@index([userId, type])
+}
+
+enum AddressType {
+  SHIPPING
+  BILLING
+  BOTH
 }
 
 enum UserRole {

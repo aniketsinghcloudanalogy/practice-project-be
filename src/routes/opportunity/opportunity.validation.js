@@ -20,14 +20,14 @@ const opportunitySchema = z.object({
   organization: z
     .string()
     .trim()
-    .max(100, 'Organization must be at most 100 characters')
+    .max(80, 'Organization must be at most 80 characters')
     .optional()
     .nullable(),
 
   title: z
     .string()
     .trim()
-    .max(200, 'Title must be at most 200 characters')
+    .max(150, 'Title must be at most 150 characters')
     .optional()
     .nullable(),
 

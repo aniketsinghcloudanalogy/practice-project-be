@@ -3,7 +3,9 @@ const opportunityController = require('./opportunity/opportunity.controller');
 const { protect } = require('../middlewares/auth.middleware');
 const { validateCreateOpportunity, validateUpdateOpportunity } = require('./opportunity/opportunity.validation');
 
+
 router.use(protect);
+
 
 router
   .route('/')

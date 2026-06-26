@@ -39,6 +39,8 @@ const contactsSchema = z.object({
     .nullable(),
 
   contactType: contactTypeSchema.default('PRIMARY'),
+
+  customerId: z.string().optional().nullable(),
 });
 
 const updateContactsSchema = contactsSchema.partial().refine(

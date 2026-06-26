@@ -23,11 +23,12 @@ const USER_SELECT = {
 };
 
 const createContact = (userId, data) => {
-  return prisma.userContact.create({
-    data: {
-      ...data,
-      userId,
+  return prisma.userContact.upsert({
+    where: {
+      user_contact_user_email_unique: { userId, email: data.email },
     },
+    create: { ...data, userId },
+    update: data,
     select: USER_CONTACT_SELECT,
   });
 };
