@@ -17,12 +17,14 @@ const createAddress = asyncHandler(async (req, res) => {
 
 const getAddresses = asyncHandler(async (req, res) => {
   await verifyCustomer(req.params.customerId, req.user.id);
+  await addressModel.normalizeCustomerAddressDefaultsById(req.user.id, req.params.customerId);
   const addresses = await addressModel.findAddressesByCustomer(req.user.id, req.params.customerId);
   return res.status(200).json(new ApiResponse(200, 'Addresses fetched successfully', addresses));
 });
 
 const getAddress = asyncHandler(async (req, res) => {
   await verifyCustomer(req.params.customerId, req.user.id);
+  await addressModel.normalizeCustomerAddressDefaultsById(req.user.id, req.params.customerId);
   const address = await addressModel.findAddressById(req.params.addressId, req.user.id, req.params.customerId);
   if (!address) throw new ApiError(404, 'Address not found');
   return res.status(200).json(new ApiResponse(200, 'Address fetched successfully', address));

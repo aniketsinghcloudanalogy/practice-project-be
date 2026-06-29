@@ -2,6 +2,7 @@ const ApiError = require('../../utils/ApiError');
 const ApiResponse = require('../../utils/ApiResponse');
 const customerModel = require('./helper');
 const contactsModel = require('../contacts/helper');
+const addressModel = require('./address.helper');
 
 const createCustomer = async (req, res) => {
   try {
@@ -19,6 +20,7 @@ const createCustomer = async (req, res) => {
 const getCustomers = async (req, res) => {
   try {
     await contactsModel.normalizeAllCustomerContactDefaultsForUser(req.user.id);
+    await addressModel.normalizeAllCustomerAddressDefaultsForUser(req.user.id);
     const customers = await customerModel.findCustomersByUserId(req.user.id);
 
     return res.status(200).json(
@@ -33,6 +35,7 @@ const getCustomers = async (req, res) => {
 const getCustomer = async (req, res) => {
   try {
     await contactsModel.normalizeCustomerContactDefaultsById(req.user.id, req.params.customerId);
+    await addressModel.normalizeCustomerAddressDefaultsById(req.user.id, req.params.customerId);
     const customer = await customerModel.findCustomerByIdAndUserId(
       req.params.customerId,
       req.user.id
@@ -104,3 +107,4 @@ module.exports = {
   updateCustomer,
   deleteCustomer,
 };
+
