@@ -28,10 +28,10 @@ const buildLineItemRecords = ({ rows, mapping, userId, tableId, tableTitle }) =>
   return rows.map((row, rowIndex) => {  // for each row, build a line item based on the mapping
     const lineItem = {                     // base fields for every line item
       userId,
-      pdfTableId:      tableId,
+      pdfTableId: tableId,
       sourceTableTitle: tableTitle || null,
-      rowSourceId:     row.id || null,
-      rowIndex:        row.rowIndex ?? rowIndex,
+      rowSourceId: row.id || null,
+      rowIndex: row.rowIndex ?? rowIndex,
     };
     for (const [sourceColumn, targetField] of mappingEntries) {
       const value = row.rowData?.[sourceColumn];
@@ -144,7 +144,7 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
     const tableIdsToDelete = [...existingTableIds].filter(id => !incomingTableIds.has(id));  // tables that exist in DB but not in incoming data should be deleted
     const activeExistingTableIds = [...existingTableIds].filter(id => incomingTableIds.has(id));    // tables that exist in both DB and incoming data are "active" — we need to read their rows for further processing
 
-   
+
     const existingRowsByTableId = new Map();
 
     if (activeExistingTableIds.length > 0) {
@@ -173,20 +173,24 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
           where: { pdfTableId: { in: tableIdsToDelete }, userId, isDeleted: false },
           data: { isDeleted: true },
         }),
+        tx.profitabilty_line_items.updateMany({
+          where: { pdfTableId: { in: tableIdsToDelete }, userId, isDeleted: false },
+          data: { isDeleted: true },
+        }),
       ]);
     }
 
 
     const allRowsToCreate = [];
-    const tableLineItems  = [];
+    const tableLineItems = [];
     const changedTableIds = new Set();
     const existingTableOps = [];
     const newTableOps = [];
 
-  
+
     for (const incomingTable of tables) {
-      const tableColumns    = Array.isArray(incomingTable.columns) ? incomingTable.columns : [];
-      const tableRows       = Array.isArray(incomingTable.rows)    ? incomingTable.rows    : [];
+      const tableColumns = Array.isArray(incomingTable.columns) ? incomingTable.columns : [];
+      const tableRows = Array.isArray(incomingTable.rows) ? incomingTable.rows : [];
       const lineItemMapping = incomingTable.lineItemMapping ?? {};
 
       const tableId = incomingTable.id;
@@ -302,16 +306,79 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
 
     // ── Batch wipe + recreate line items ──────────────────────────────────────
     const changedTableIdList = [...changedTableIds];
-    if (changedTableIdList.length > 0) {
-      await tx.lineItem.updateMany({
-        where: { pdfTableId: { in: changedTableIdList }, userId, isDeleted: false },
-        data: { isDeleted: true },
-      });
-    }
 
-    const allLineItems = tableLineItems.flatMap(t => t.items);
-    if (allLineItems.length > 0) {
-      await tx.lineItem.createMany({ data: allLineItems });
+    if (changedTableIdList.length > 0) {
+      // ── Read existing LineItem quote context BEFORE wiping ──────────────────
+      // LineItems created by processSingleFile carry quote_id + quote_file_id.
+      // We must re-attach those after recreating, otherwise verifyQuoteFileById
+      // can't find them by quote_file_id.
+      const existingQuoteContext = await tx.lineItem.findMany({
+        where: {
+          pdfTableId: { in: changedTableIdList },
+          userId,
+          isDeleted: false,
+          quote_id: { not: null },
+        },
+        select: {
+          pdfTableId: true,
+          quote_id: true,
+          quote_file_id: true,
+        },
+        distinct: ['pdfTableId', 'quote_id', 'quote_file_id'],
+      });
+
+      // Build map: pdfTableId -> [{ quote_id, quote_file_id }]
+      const quoteContextByTableId = existingQuoteContext.reduce((acc, row) => {
+        (acc[row.pdfTableId] ??= []).push({
+          quote_id: row.quote_id,
+          quote_file_id: row.quote_file_id,
+        });
+        return acc;
+      }, {});
+
+      // Wipe old line items and profitability items for changed tables
+      await Promise.all([
+        tx.lineItem.updateMany({
+          where: { pdfTableId: { in: changedTableIdList }, userId, isDeleted: false },
+          data: { isDeleted: true },
+        }),
+        tx.profitabilty_line_items.updateMany({
+          where: {
+            pdfTableId: { in: changedTableIdList },
+            userId,
+            isDeleted: false,
+            is_Verifed: false,
+          },
+          data: { isDeleted: true },
+        }),
+      ]);
+
+      // Recreate LineItems — one set per quote context per table
+      const allLineItemsToCreate = [];
+
+      for (const { tableId, items } of tableLineItems) {
+        const quoteContexts = quoteContextByTableId[tableId] ?? [];
+
+        if (quoteContexts.length === 0) {
+          // No quote context — plain aiPdf LineItems
+          allLineItemsToCreate.push(...items);
+        } else {
+          // Re-attach each quote context
+          for (const { quote_id, quote_file_id } of quoteContexts) {
+            for (const item of items) {
+              allLineItemsToCreate.push({
+                ...item,
+                quote_id,
+                quote_file_id,
+              });
+            }
+          }
+        }
+      }
+
+      if (allLineItemsToCreate.length > 0) {
+        await tx.lineItem.createMany({ data: allLineItemsToCreate });
+      }
     }
 
     return { uploadId };
@@ -350,6 +417,10 @@ const softDeleteUploadById = async (uploadId, userId) => {
         }),
         tx.lineItem.updateMany({
           where: { pdfTableId: { in: tableIds }, userId },
+          data: { isDeleted: true },
+        }),
+        tx.profitabilty_line_items.updateMany({
+          where: { pdfTableId: { in: tableIds }, userId, isDeleted: false },
           data: { isDeleted: true },
         }),
       ] : []),

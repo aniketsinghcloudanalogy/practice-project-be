@@ -513,7 +513,8 @@ const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
     where: {
       id: quoteFileId,
       quote_id: quoteId,
-      quote: { userId },
+      is_deleted: false,                          // ← add this
+      quote: { userId, is_deleted: false },       // ← add is_deleted: false here too
     },
     select: {
       id: true,
@@ -526,10 +527,70 @@ const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
     },
   });
 
-  if (!quoteFile) {
-    throw new ApiError(404, 'Quote file not found');
-  }
+  if (!quoteFile) throw new ApiError(404, 'Quote file not found');
 
+  if (quoteFile.is_Verifed) return { file: quoteFile };
+
+  // 2. Fetch existing LineItems for this file
+  const existingLineItems = await prisma.lineItem.findMany({
+    where: {
+      userId,
+      quote_id: quoteId,
+      quote_file_id: quoteFileId,
+      isDeleted: false,
+    },
+    select: {
+      pdfTableId: true,
+      sourceTableTitle: true,
+      rowSourceId: true,
+      rowIndex: true,
+      lineNumber: true,
+      itemCode: true,
+      employeeId: true,
+      employeeName: true,
+      description: true,
+      department: true,
+      category: true,
+      email: true,
+      phone: true,
+      salary: true,
+      quantity: true,
+      unitPrice: true,
+      amount: true,
+      currency: true,
+      status: true,
+      referenceNo: true,
+      location: true,
+      notes: true,
+    },
+  });
+
+  // 3. Find which ones are already in profitability table (by pdfTableId + description as identity)
+  const existingProfitability = await prisma.profitabilty_line_items.findMany({
+    where: {
+      userId,
+      quote_id: quoteId,
+      quote_file_id: quoteFileId,
+      isDeleted: false,
+    },
+    select: { pdfTableId: true, description: true },
+  });
+
+  const alreadySynced = new Set(
+    existingProfitability.map((p) => `${p.pdfTableId}:${p.description ?? ''}`),
+  );
+
+  const toInsert = existingLineItems
+    .filter((item) => !alreadySynced.has(`${item.pdfTableId}:${item.description ?? ''}`))
+    .map((item) => ({
+      ...item,              // ← spread first
+      userId,
+      quote_id: quoteId,
+      quote_file_id: quoteFileId,
+      is_Verifed: true,     // ← always last, guaranteed true
+    }));
+
+  // 4. Run everything in a transaction
   const updatedQuoteFile = await prisma.$transaction(async (tx) => {
     const syncedQuoteFile = quoteFile.is_Verifed
       ? quoteFile
@@ -547,6 +608,15 @@ const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
         },
       });
 
+    // 4b. Insert missing LineItems into Profitabilty_line_items (already verified)
+    if (toInsert.length > 0) {
+      await tx.profitabilty_line_items.createMany({
+        data: toInsert,
+        skipDuplicates: true,
+      });
+    }
+
+    // 4c. Mark any pre-existing profitability line items as verified too
     await tx.profitabilty_line_items.updateMany({
       where: {
         userId,
@@ -569,5 +639,5 @@ module.exports = {
   getQuotesByUserId,
   getQuoteDetailById,
   getQuoteTablesByQuoteId,
-  verifyQuoteFileById,  
+  verifyQuoteFileById,
 };

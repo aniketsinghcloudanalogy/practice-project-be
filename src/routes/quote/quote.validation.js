@@ -121,17 +121,6 @@ const seedDummyQuoteSchema = z.object({
   lineItemsPerFile: z.number().int().min(1).max(200).optional(),
 });
 
-const validateSeedDummyQuote = (req, res, next) => {
-  const parsed = seedDummyQuoteSchema.safeParse(req.body || {});
-
-  if (!parsed.success) {
-    const firstIssue = parsed.error.issues[0];
-    return next(new ApiError(400, firstIssue?.message || 'Validation failed'));
-  }
-
-  req.body = parsed.data;
-  return next();
-};
 
 module.exports = {
   uploadQuotePdfs,
@@ -139,5 +128,5 @@ module.exports = {
   validateAddQuoteFiles,
   validateQuoteIdParam,
   validateQuoteFileIdParam,
-  validateSeedDummyQuote,
+
 };
