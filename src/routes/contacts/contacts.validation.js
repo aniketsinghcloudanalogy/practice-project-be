@@ -31,14 +31,10 @@ const contactsSchema = z.object({
     .min(10, 'Primary contact must be at least 10 digits')
     .max(15, 'Primary contact must be at most 15 digits'),
 
-  secondaryContact: z
-    .string()
-    .trim()
-    .max(15, 'Secondary contact must be at most 15 digits')
-    .optional()
-    .nullable(),
-
   contactType: contactTypeSchema.default('PRIMARY'),
+
+  isPrimaryBillingContact: z.boolean().optional().default(false),
+  isPrimaryShippingContact: z.boolean().optional().default(false),
 
   customerId: z.string().optional().nullable(),
 });

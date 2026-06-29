@@ -10,7 +10,10 @@ const USER_CONTACT_SELECT = {
   company: true,
   notes: true,
   contactType: true,
+  isPrimaryBillingContact: true,
+  isPrimaryShippingContact: true,
   userId: true,
+  customerId: true,
   createdAt: true,
   updatedAt: true,
 };
@@ -22,13 +25,25 @@ const USER_SELECT = {
   image: true,
 };
 
-const createContact = (userId, data) => {
-  return prisma.userContact.upsert({
-    where: {
-      user_contact_user_email_unique: { userId, email: data.email },
-    },
-    create: { ...data, userId },
-    update: data,
+const createContact = async (userId, data) => {
+  const { isPrimaryBillingContact, isPrimaryShippingContact, customerId } = data;
+
+  // If setting as primary billing, unset others for this customer/user
+  if (isPrimaryBillingContact && customerId) {
+    await prisma.userContact.updateMany({
+      where: { userId, customerId, isPrimaryBillingContact: true },
+      data: { isPrimaryBillingContact: false },
+    });
+  }
+  if (isPrimaryShippingContact && customerId) {
+    await prisma.userContact.updateMany({
+      where: { userId, customerId, isPrimaryShippingContact: true },
+      data: { isPrimaryShippingContact: false },
+    });
+  }
+
+  return prisma.userContact.create({
+    data: { ...data, userId },
     select: USER_CONTACT_SELECT,
   });
 };
@@ -62,14 +77,24 @@ const findContactByIdAndUserId = (id, userId) => {
   });
 };
 
-const updateContact = (id, userId, data) => {
-  return prisma.userContact.updateMany({
-    where: {
-      id,
-      userId,
-    },
-    data,
-  });
+const updateContact = async (id, userId, data) => {
+  const existing = await prisma.userContact.findFirst({ where: { id, userId }, select: { customerId: true } });
+  const customerId = existing?.customerId;
+
+  if (data.isPrimaryBillingContact && customerId) {
+    await prisma.userContact.updateMany({
+      where: { userId, customerId, isPrimaryBillingContact: true, id: { not: id } },
+      data: { isPrimaryBillingContact: false },
+    });
+  }
+  if (data.isPrimaryShippingContact && customerId) {
+    await prisma.userContact.updateMany({
+      where: { userId, customerId, isPrimaryShippingContact: true, id: { not: id } },
+      data: { isPrimaryShippingContact: false },
+    });
+  }
+
+  return prisma.userContact.updateMany({ where: { id, userId }, data });
 };
 
 const deleteContact = (id, userId) => {

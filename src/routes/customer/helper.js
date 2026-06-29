@@ -13,6 +13,7 @@ const CUSTOMER_SELECT = {
   createdAt: true,
   updatedAt: true,
   addresses: {
+    where: { isDeleted: false },
     select: {
       id: true,
       addressLine: true,
