@@ -34,8 +34,11 @@ const CUSTOMER_SELECT = {
       email: true,
       primaryContact: true,
       secondaryContact: true,
+      company: true,
+      contactType: true,
+      isPrimaryBillingContact: true,
+      isPrimaryShippingContact: true,
     },
-    take: 1,
     orderBy: { createdAt: 'asc' },
   },
 };
