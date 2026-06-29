@@ -8,6 +8,7 @@ const createCustomerContact = async (req, res) => {
       ...req.body,
       customerId: req.params.customerId,
     });
+    if (!contact) throw new ApiError(404, 'Customer not found');
     return res.status(201).json(new ApiResponse(201, 'Contact created successfully', contact));
   } catch (error) {
     const status = error.statusCode || error.status || 500;
@@ -17,7 +18,9 @@ const createCustomerContact = async (req, res) => {
 
 const updateCustomerContact = async (req, res) => {
   try {
-    const result = await contactsModel.updateContact(req.params.contactId, req.user.id, req.body);
+    const result = await contactsModel.updateContact(req.params.contactId, req.user.id, req.body, {
+      customerId: req.params.customerId,
+    });
     if (result.count === 0) throw new ApiError(404, 'Contact not found');
     const contact = await contactsModel.findContactByIdAndUserId(req.params.contactId, req.user.id);
     return res.status(200).json(new ApiResponse(200, 'Contact updated successfully', contact));
@@ -29,7 +32,9 @@ const updateCustomerContact = async (req, res) => {
 
 const deleteCustomerContact = async (req, res) => {
   try {
-    const result = await contactsModel.deleteContact(req.params.contactId, req.user.id);
+    const result = await contactsModel.deleteContact(req.params.contactId, req.user.id, {
+      customerId: req.params.customerId,
+    });
     if (result.count === 0) throw new ApiError(404, 'Contact not found');
     return res.status(200).json(new ApiResponse(200, 'Contact deleted successfully'));
   } catch (error) {

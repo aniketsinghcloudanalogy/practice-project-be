@@ -31,6 +31,27 @@ const contactsSchema = z.object({
     .min(10, 'Primary contact must be at least 10 digits')
     .max(15, 'Primary contact must be at most 15 digits'),
 
+  secondaryContact: z
+    .string()
+    .trim()
+    .max(15, 'Secondary contact must be at most 15 digits')
+    .optional()
+    .nullable(),
+
+  company: z
+    .string()
+    .trim()
+    .max(100, 'Company must be at most 100 characters long')
+    .optional()
+    .nullable(),
+
+  notes: z
+    .string()
+    .trim()
+    .max(1000, 'Notes must be at most 1000 characters long')
+    .optional()
+    .nullable(),
+
   contactType: contactTypeSchema.default('PRIMARY'),
 
   isPrimaryBillingContact: z.boolean().optional().default(false),
