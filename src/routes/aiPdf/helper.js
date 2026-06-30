@@ -52,13 +52,13 @@ const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
   if (tables.length === 0) throw new ApiError(422, 'No tables found in PDF');//validate table exist
 
   return prisma.$transaction(async (tx) => {
-    const pdfUpload = await tx.pdfUpload.create({  // create upload record
+    const pdfUpload = await tx.pdfUpload.create({ 
       data: { userId, fileName },
       select: { id: true },
     });
 
     const results = await Promise.all(
-      tables.map(async (table) => {  //loop through tables, create table record + rows for each
+      tables.map(async (table) => { 
         const pdfTable = await tx.pdfTable.create({
           data: {
             pdfUploadId: pdfUpload.id, userId,
@@ -82,7 +82,7 @@ const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
     );
 
     return { uploadId: pdfUpload.id, tableCount: tables.length, tables: results };
-  });
+  }, { timeout: 30000 });
 };
 
 // ─── getUserUploads  ───────────────────────────────────────────────
@@ -382,7 +382,7 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
     }
 
     return { uploadId };
-  });
+  }, { timeout: 30000 });
 };
 
 // ─── softDeleteUploadById — OPTIMIZED ────────────────────────────────────────
@@ -427,7 +427,7 @@ const softDeleteUploadById = async (uploadId, userId) => {
     ]);
 
     return { uploadId, deletedTables: tableIds.length };
-  });
+  }, { timeout: 30000 });
 };
 
 module.exports = {

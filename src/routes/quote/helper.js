@@ -3,7 +3,7 @@ const fs = require('fs');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const { extractPdfText } = require('../../utils/pdfExtractor');
-const { extractWithGroq } = require('../../utils/groqClientMultiTabeles');
+const { extractWithGroq, mergeExtractedTables } = require('../../utils/groqClientMultiTabeles');
 const { processUploadedPdf } = require('../aiPdf/helper');
 
 
@@ -125,10 +125,18 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
     throw new ApiError(mappedStatusCode, message);
   }
 
+  if (!Array.isArray(extractedData?.tables) || extractedData.tables.length === 0) {
+    throw new ApiError(422, 'No tables found in PDF');
+  }
+
+  const mergedExtractedData = {
+    tables: [mergeExtractedTables(extractedData.tables)],
+  };
+
   const processResult = await processUploadedPdf({
     userId,
     fileName: file.originalname,
-    extractedData,
+    extractedData: mergedExtractedData,
   });
 
   const createdQuoteFile = await prisma.quoteFile.create({
