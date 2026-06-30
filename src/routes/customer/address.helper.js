@@ -27,24 +27,32 @@ const normalizeCustomerAddressDefaults = async (tx, userId, customerId, options 
       isDefaultBilling: true,
       type: true,
       createdAt: true,
+      updatedAt: true,
     },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { updatedAt: 'desc' },
   });
 
   if (addresses.length === 0) return;
 
+  const canHoldShipping = (a) => a.type === 'SHIPPING' || a.type === 'BOTH';
+  const canHoldBilling  = (a) => a.type === 'BILLING'  || a.type === 'BOTH';
+
   const pickDefault = (flag, preferAddressId, avoidAddressId) => {
-    const flagged = addresses.filter((address) => address[flag]);
-    const preferredFlagged = flagged.find((address) => address.id === preferAddressId);
+    const isShippingFlag = flag === 'isDefaultShipping';
+    const canHold = isShippingFlag ? canHoldShipping : canHoldBilling;
 
-    if (preferredFlagged) return preferredFlagged.id;
-    if (flagged.length > 0) return flagged[0].id;
-
-    const preferred = addresses.find((address) => address.id === preferAddressId);
+    // 1. Explicit prefer — only if that address can actually hold this flag
+    const preferred = addresses.find((a) => a.id === preferAddressId && canHold(a));
     if (preferred) return preferred.id;
 
-    const replacement = addresses.find((address) => address.id !== avoidAddressId);
-    return replacement?.id ?? addresses[0].id;
+    // 2. Already flagged as default and eligible — keep it (most recently updated first)
+    const flagged = addresses.filter((a) => a[flag] && a.id !== avoidAddressId && canHold(a));
+    if (flagged.length > 0) return flagged[0].id;
+
+    // 3. No valid default — promote most recently updated eligible address
+    const fallback = addresses.find((a) => a.id !== avoidAddressId && canHold(a));
+    // Last resort: any address (covers single-address scenario with mixed types)
+    return fallback?.id ?? addresses.find((a) => a.id !== avoidAddressId)?.id ?? addresses[0].id;
   };
 
   const shippingDefaultId = pickDefault(
@@ -100,47 +108,20 @@ const createAddress = async (userId, customerId, data) => {
   return prisma.$transaction(async (tx) => {
     const { isDefaultShipping, isDefaultBilling, type, ...rest } = data;
 
-    const existing = await tx.address.findMany({
-      where: { userId, customerId, isDeleted: false },
-      select: { isDefaultShipping: true, isDefaultBilling: true },
-    });
-    const hasShippingDefault = existing.some((address) => address.isDefaultShipping);
-    const hasBillingDefault = existing.some((address) => address.isDefaultBilling);
-    const addressData = {
-      ...rest,
-      type,
-      userId,
-      customerId,
-      isDefaultShipping: type === 'BILLING' ? false : isDefaultShipping === true || !hasShippingDefault,
-      isDefaultBilling: type === 'SHIPPING' ? false : isDefaultBilling === true || !hasBillingDefault,
-    };
-
-    if (existing.length === 0) {
-      addressData.isDefaultShipping = true;
-      addressData.isDefaultBilling = true;
-    }
-
-    if (addressData.isDefaultShipping) {
-      await tx.address.updateMany({
-        where: { userId, customerId, isDefaultShipping: true, isDeleted: false },
-        data: { isDefaultShipping: false },
-      });
-    }
-    if (addressData.isDefaultBilling) {
-      await tx.address.updateMany({
-        where: { userId, customerId, isDefaultBilling: true, isDeleted: false },
-        data: { isDefaultBilling: false },
-      });
-    }
-
+    // Step 1: create record with all flags false — normalize will assign defaults
     const address = await tx.address.create({
-      data: addressData,
+      data: { ...rest, type, userId, customerId, isDefaultShipping: false, isDefaultBilling: false },
       select: ADDRESS_SELECT,
     });
 
+    // Step 2: normalize — prefer newly created address if frontend requested default,
+    // normalize will also handle first-address case (no existing default → promote new one)
+   const wantsShipping = type === 'SHIPPING' && isDefaultShipping === true;
+const wantsBilling  = type === 'BILLING' && isDefaultBilling === true;
+
     await normalizeCustomerAddressDefaults(tx, userId, customerId, {
-      preferShippingAddressId: address.isDefaultShipping ? address.id : undefined,
-      preferBillingAddressId: address.isDefaultBilling ? address.id : undefined,
+      preferShippingAddressId: wantsShipping ? address.id : undefined,
+      preferBillingAddressId:  wantsBilling  ? address.id : undefined,
     });
 
     return tx.address.findUnique({
@@ -176,41 +157,30 @@ const updateAddress = async (id, userId, customerId, data) => {
     if (!existing) return null;
 
     const nextType = rest.type ?? existing.type;
-    const nextIsDefaultShipping = nextType === 'BILLING' ? false : isDefaultShipping;
-    const nextIsDefaultBilling = nextType === 'SHIPPING' ? false : isDefaultBilling;
+    // Type-guard: BILLING can't be shipping default, SHIPPING can't be billing default
+    const nextIsDefaultShipping = nextType === 'BILLING'  ? false : isDefaultShipping;
+    const nextIsDefaultBilling  = nextType === 'SHIPPING' ? false : isDefaultBilling;
 
-    if (nextIsDefaultShipping) {
-      await tx.address.updateMany({
-        where: { userId, customerId, isDefaultShipping: true, isDeleted: false, id: { not: id } },
-        data: { isDefaultShipping: false },
-      });
-    }
-    if (nextIsDefaultBilling) {
-      await tx.address.updateMany({
-        where: { userId, customerId, isDefaultBilling: true, isDeleted: false, id: { not: id } },
-        data: { isDefaultBilling: false },
-      });
-    }
-
-    const address = await tx.address.update({
+    // Step 1: apply field updates only (no default flags yet — normalize handles that)
+    await tx.address.update({
       where: { id },
       data: {
         ...rest,
         ...(nextIsDefaultShipping !== undefined && { isDefaultShipping: nextIsDefaultShipping }),
-        ...(nextIsDefaultBilling !== undefined && { isDefaultBilling: nextIsDefaultBilling }),
+        ...(nextIsDefaultBilling  !== undefined && { isDefaultBilling:  nextIsDefaultBilling  }),
       },
-      select: ADDRESS_SELECT,
     });
 
+    // Step 2: normalize — single source of truth for defaults
     await normalizeCustomerAddressDefaults(tx, userId, customerId, {
-      preferShippingAddressId: nextIsDefaultShipping === true ? id : undefined,
-      preferBillingAddressId: nextIsDefaultBilling === true ? id : undefined,
-      avoidShippingAddressId: nextIsDefaultShipping === false ? id : undefined,
-      avoidBillingAddressId: nextIsDefaultBilling === false ? id : undefined,
+      preferShippingAddressId: nextIsDefaultShipping === true  ? id : undefined,
+      preferBillingAddressId:  nextIsDefaultBilling  === true  ? id : undefined,
+      avoidShippingAddressId:  nextIsDefaultShipping === false ? id : undefined,
+      avoidBillingAddressId:   nextIsDefaultBilling  === false ? id : undefined,
     });
 
     return tx.address.findUnique({
-      where: { id: address.id },
+      where: { id },
       select: ADDRESS_SELECT,
     });
   });
