@@ -136,6 +136,54 @@ const deleteById = (id) => {
   });
 };
 
+// --- ProgramForm helpers ---
+
+const PROGRAM_FORM_SELECT = {
+  id: true,
+  programId: true,
+  formDesign: true,
+  submittedDesign: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+};
+
+const findFormByProgramId = (programId) =>
+  prisma.programForm.findUnique({ where: { programId }, select: PROGRAM_FORM_SELECT });
+
+const upsertFormDraft = (programId, formDesign) =>
+  prisma.programForm.upsert({
+    where: { programId },
+    create: { programId, formDesign, status: 'DRAFT' },
+    update: { formDesign, status: 'DRAFT' },
+    select: PROGRAM_FORM_SELECT,
+  });
+
+const submitProgramForm = (programId, formDesign) =>
+  prisma.programForm.upsert({
+    where: { programId },
+    create: { programId, formDesign, submittedDesign: formDesign, status: 'SUBMITTED' },
+    update: { submittedDesign: formDesign, status: 'SUBMITTED' },
+    select: PROGRAM_FORM_SELECT,
+  });
+
+const updateSubmittedForm = (programId, submittedDesign) =>
+  prisma.programForm.update({
+    where: { programId },
+    data: { submittedDesign, formDesign: submittedDesign },
+    select: PROGRAM_FORM_SELECT,
+  });
+
+const deleteFormByProgramId = (programId) =>
+  prisma.programForm.delete({ where: { programId }, select: PROGRAM_FORM_SELECT });
+
+const reopenProgramForm = (programId) =>
+  prisma.programForm.update({
+    where: { programId },
+    data: { status: 'DRAFT' },
+    select: PROGRAM_FORM_SELECT,
+  });
+
 module.exports = {
   FORM_SUBMISSION_SELECT,
   createDraft,
@@ -149,4 +197,11 @@ module.exports = {
   findByFormType,
   findAll,
   deleteById,
+  // ProgramForm exports
+  findFormByProgramId,
+  upsertFormDraft,
+  submitProgramForm,
+  updateSubmittedForm,
+  deleteFormByProgramId,
+  reopenProgramForm,
 };

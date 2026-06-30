@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const partnerController = require('./partner/partner.controller');
-const formController = require('./partner/formController');
+const formController = require('./forms/forms.controller');
 const { protect, authorize } = require('../middlewares/auth.middleware');
 const {
   validateAddPartner,
@@ -31,11 +31,11 @@ router.patch('/partners/:partnerId', ...superAdmin, validatePartnerIdParam, vali
 router.delete('/partners/:partnerId', ...superAdmin, validatePartnerIdParam, partnerController.deletePartnerById);
 
 // Program Form routes
-router.get('/forms/:programId', ...admin, validateProgramIdParam, formController.getForm);
-router.post('/forms/:programId/save', ...admin, validateProgramIdParam, formController.saveDraft);
+router.get('/forms/:programId', ...admin, validateProgramIdParam, formController.getProgramForm);
+router.post('/forms/:programId/save', ...admin, validateProgramIdParam, formController.saveProgramFormDraft);
 router.post('/forms/:programId/submit', ...admin, validateProgramIdParam, formController.submitProgramForm);
 router.patch('/forms/:programId', ...superAdmin, validateProgramIdParam, formController.editSubmittedForm);
 router.delete('/forms/:programId', ...superAdmin, validateProgramIdParam, formController.deleteProgramForm);
-router.post('/forms/:programId/reopen', ...superAdmin, validateProgramIdParam, formController.reopenForm);
+router.post('/forms/:programId/reopen', ...superAdmin, validateProgramIdParam, formController.reopenProgramFormController);
 
 module.exports = router;

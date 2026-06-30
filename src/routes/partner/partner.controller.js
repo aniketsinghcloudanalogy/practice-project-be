@@ -50,11 +50,15 @@ const addProgram = async (req, res) => {
       throw new ApiError(404, 'Partner not found');
     }
 
+      if(!partnerProgramName){
+        throw new ApiError(400, 'partnerProgramName is required');
+      }
+
     const newProgram = await createProgram({
-      partnerProgramName: partnerName + '  ' + partnerProgramName,
+      partnerProgramName,
       description,
       partnerId: partner.id,
-    });
+    }) ;
 
     return res.status(201).json(
       new ApiResponse(201, 'Program created successfully', newProgram)
