@@ -29,7 +29,7 @@ const normalizeCustomerAddressDefaults = async (tx, userId, customerId, options 
       createdAt: true,
       updatedAt: true,
     },
-    orderBy: { updatedAt: 'desc' },
+     orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
   });
 
   if (addresses.length === 0) return;
@@ -50,9 +50,7 @@ const normalizeCustomerAddressDefaults = async (tx, userId, customerId, options 
     if (flagged.length > 0) return flagged[0].id;
 
     // 3. No valid default — promote most recently updated eligible address
-    const fallback = addresses.find((a) => a.id !== avoidAddressId && canHold(a));
-    // Last resort: any address (covers single-address scenario with mixed types)
-    return fallback?.id ?? addresses.find((a) => a.id !== avoidAddressId)?.id ?? addresses[0].id;
+    return addresses.find((a) => a.id !== avoidAddressId && canHold(a))?.id ?? null;
   };
 
   const shippingDefaultId = pickDefault(
@@ -71,15 +69,19 @@ const normalizeCustomerAddressDefaults = async (tx, userId, customerId, options 
     data: { isDefaultShipping: false, isDefaultBilling: false },
   });
 
-  await tx.address.update({
-    where: { id: shippingDefaultId },
-    data: { isDefaultShipping: true },
-  });
+  if (shippingDefaultId) {
+    await tx.address.update({
+      where: { id: shippingDefaultId },
+      data: { isDefaultShipping: true },
+    });
+  }
 
-  await tx.address.update({
-    where: { id: billingDefaultId },
-    data: { isDefaultBilling: true },
-  });
+  if (billingDefaultId) {
+    await tx.address.update({
+      where: { id: billingDefaultId },
+      data: { isDefaultBilling: true },
+    });
+  }
 };
 
 const normalizeCustomerAddressDefaultsById = (userId, customerId, options = {}) => {
@@ -116,8 +118,8 @@ const createAddress = async (userId, customerId, data) => {
 
     // Step 2: normalize — prefer newly created address if frontend requested default,
     // normalize will also handle first-address case (no existing default → promote new one)
-   const wantsShipping = type === 'SHIPPING' && isDefaultShipping === true;
-const wantsBilling  = type === 'BILLING' && isDefaultBilling === true;
+    const wantsShipping = (type === 'SHIPPING' || type === 'BOTH') && isDefaultShipping === true;
+    const wantsBilling  = (type === 'BILLING'  || type === 'BOTH') && isDefaultBilling  === true;
 
     await normalizeCustomerAddressDefaults(tx, userId, customerId, {
       preferShippingAddressId: wantsShipping ? address.id : undefined,
@@ -134,7 +136,7 @@ const wantsBilling  = type === 'BILLING' && isDefaultBilling === true;
 const findAddressesByCustomer = (userId, customerId) => {
   return prisma.address.findMany({
     where: { userId, customerId, isDeleted: false },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' },{ id: 'asc' }],
     select: ADDRESS_SELECT,
   });
 };
