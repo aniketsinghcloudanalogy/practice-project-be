@@ -26,8 +26,13 @@ const PROGRAM_SELECT = {
 };
 
 const createPartner = (partnerData) => {
+  // Filter out undefined values to prevent Prisma issues
+  const cleanData = Object.fromEntries(
+    Object.entries(partnerData).filter(([_, value]) => value !== undefined && value !== null)
+  );
+  
   return prisma.partner.create({
-    data: partnerData,
+    data: cleanData,
     select: PARTNER_SELECT,
   });
 };

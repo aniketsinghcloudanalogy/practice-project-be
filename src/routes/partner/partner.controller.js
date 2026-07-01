@@ -23,20 +23,42 @@ const prisma = require('../../config/prisma');
 
 const addPartner = async (req, res) => {
   try {
-    const existingPartner = await findPartnerByPartnerName(req.body.partnerName);
+    // Validate required fields
+    if (!req.body.partnerName || req.body.partnerName.trim() === '') {
+      throw new ApiError(400, 'Partner name is required');
+    }
+
+    // Clean the data - convert null values to undefined for optional fields
+    const cleanData = {
+      partnerName: req.body.partnerName.trim(),
+      externalId: req.body.externalId || undefined,
+      parentPartner: req.body.parentPartner || undefined,
+      pmId: req.body.pmId || undefined,
+      url: req.body.url || undefined,
+      email: req.body.email || undefined,
+    };
+
+    const existingPartner = await findPartnerByPartnerName(cleanData.partnerName);
 
     if (existingPartner) {
       throw new ApiError(400, 'Partner with this name already exists');
     }
 
-    const newPartner = await createPartner(req.body);
+    const newPartner = await createPartner(cleanData);
 
     return res.status(201).json(
       new ApiResponse(201, 'Partner created successfully', newPartner)
     );
   } catch (error) {
+    console.error('[addPartner] Error:', error);
+    
     const status = error.statusCode || error.status || 500;
-    return res.status(status).json(new ApiResponse(status, error.message || 'Internal Server Error', null));
+    const message = error.message || 'Internal Server Error';
+    
+    // Ensure consistent error response structure
+    return res.status(status).json(
+      new ApiResponse(status, message, null)
+    );
   }
 };
 
