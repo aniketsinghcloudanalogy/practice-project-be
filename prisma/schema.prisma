@@ -352,6 +352,7 @@ model LineItem {
   referenceNo      String?
   location         String?
   notes            String?
+  extraFields      Json?
   isDeleted        Boolean    @default(false)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -396,6 +397,7 @@ model Profitabilty_line_items {
   referenceNo      String?
   location         String?
   notes            String?
+  extraFields      Json?
   isDeleted        Boolean    @default(false)
   is_Verifed       Boolean    @default(false)
   createdAt        DateTime   @default(now())
