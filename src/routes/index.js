@@ -4,6 +4,7 @@ const userRoutes = require('./user.routes');
 const contactusRoutes = require('./contactus.routes');
 const contactsRoutes = require('./contacts.routes');
 const pdfRoutes = require('./pdf.routes');
+const aiPdfRoutes = require('./aiPdf.routes');
 const partnerRoutes = require('./partner.routes');
 const formsRoutes = require('./forms.routes');
 const customerRoutes = require('./customer.routes');
@@ -17,10 +18,11 @@ router.get('/health', (req, res) => {
 });
 
 router.use('/users', userRoutes);
-router.use('/contact', contactusRoutes);
+router.use('/contactus', contactusRoutes);
 router.use('/contacts', contactsRoutes);
-router.use('/pdf', pdfRoutes);
+
 router.use('/pdfs', pdfRoutes);
+router.use('/aipdf', aiPdfRoutes);
 router.use('/partners', partnerRoutes);
 router.use('/forms', formsRoutes);
 router.use('/customers', customerRoutes);

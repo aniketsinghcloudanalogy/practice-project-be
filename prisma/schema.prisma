@@ -25,10 +25,17 @@ model User {
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
+<<<<<<< HEAD
   contacts        Contact[]
   userContacts    UserContact[]
   refreshTokens   RefreshToken[]
   extractedTables ExtractedTable[]
+=======
+  contacts      Contact[]
+  userContacts  UserContact[]
+  refreshTokens RefreshToken[]
+   extractedTables ExtractedTable[]
+>>>>>>> 63f2f0e (added upload api routes)
 
   pdfUploads              PdfUpload[]
   pdfTables               PdfTable[]
@@ -37,9 +44,12 @@ model User {
 
   formSubmissions FormSubmission[]
   quotes          Quote[]
+<<<<<<< HEAD
   customers       Customer[]
   opportunities   Opportunity[]
   addresses       Address[]
+=======
+>>>>>>> 63f2f0e (added upload api routes)
 
   @@unique([authProvider, providerAccountId])
   @@index([organizationId])
@@ -109,6 +119,10 @@ model PdfUpload {
   @@index([userId])
   @@index([isDeleted])
   @@index([userId, isDeleted, createdAt(sort: Desc)])
+<<<<<<< HEAD
+=======
+
+>>>>>>> 63f2f0e (added upload api routes)
 }
 
 model PdfTable {
@@ -286,6 +300,7 @@ model FormSubmission {
 }
 
 model Quote {
+<<<<<<< HEAD
   id                      String                    @id @default(cuid())
   quote_number            Int
   name                    String
@@ -297,6 +312,18 @@ model Quote {
   quote_files             QuoteFile[]
   lineItems               LineItem[]
   profitabilty_line_items Profitabilty_line_items[]
+=======
+  id           String      @id @default(cuid())
+  quote_number Int
+  name         String
+  pdf_url      String?
+  status       QuoteStatus @default(DRAFT)
+  is_deleted   Boolean     @default(false)
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quote_files  QuoteFile[]
+  lineItems    LineItem[]
+>>>>>>> 63f2f0e (added upload api routes)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -308,6 +335,7 @@ model Quote {
 }
 
 model QuoteFile {
+<<<<<<< HEAD
   id                      String                    @id @default(cuid())
   quote_id                String
   pdf_upload_id           String
@@ -320,6 +348,18 @@ model QuoteFile {
   pdf_upload              PdfUpload                 @relation(fields: [pdf_upload_id], references: [id], onDelete: Cascade)
   lineItems               LineItem[]
   profitabilty_line_items Profitabilty_line_items[]
+=======
+  id            String     @id @default(cuid())
+  quote_id      String
+  pdf_upload_id String
+  file_name     String
+  is_deleted    Boolean    @default(false)
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+  quote         Quote      @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  pdf_upload    PdfUpload  @relation(fields: [pdf_upload_id], references: [id], onDelete: Cascade)
+  lineItems     LineItem[]
+>>>>>>> 63f2f0e (added upload api routes)
 
   @@index([quote_id])
   @@index([pdf_upload_id])
@@ -352,7 +392,10 @@ model LineItem {
   referenceNo      String?
   location         String?
   notes            String?
+<<<<<<< HEAD
   extraFields      Json?
+=======
+>>>>>>> 63f2f0e (added upload api routes)
   isDeleted        Boolean    @default(false)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -370,6 +413,7 @@ model LineItem {
   @@index([userId, isDeleted, createdAt(sort: Desc)])
 }
 
+<<<<<<< HEAD
 model Profitabilty_line_items {
   id               String     @id @default(cuid())
   userId           String
@@ -505,6 +549,8 @@ enum AddressType {
   BOTH
 }
 
+=======
+>>>>>>> 63f2f0e (added upload api routes)
 enum UserRole {
   USER
   ADMIN

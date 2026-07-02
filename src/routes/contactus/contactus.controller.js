@@ -22,36 +22,52 @@ const createContact = async (req, res) => {
           req.body.userId = decoded.id;
         }
       } catch (err) {
-        // ignore invalid token and continue as anonymous
+        // Ignore invalid tokens and continue as anonymous.
       }
     }
 
     const contact = await contactusModel.createContact(req.body);
 
     if (hasContactMailConfig()) {
-      transporter.sendMail({
-        from: config.smtp.user,
-        to: config.smtp.to,
-        subject: `New Contact Request - ${contact.subject}`,
-        html: `
-          <h2>New Contact Request</h2>
+      const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(' ');
+      const safeMessage = String(contact.message || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\n/g, '<br />');
 
-          <p><strong>Name:</strong> ${contact.firstName} ${contact.lastName ?? ''}</p>
-          <p><strong>Email:</strong> ${contact.email}</p>
-          <p><strong>Phone:</strong> ${contact.primaryContact}</p>
-
-          <p><strong>Message:</strong></p>
-          <p>${contact.message}</p>
-        `,
-      }).catch((error) => {
+      try {
+        await transporter.sendMail({
+          from: config.smtp.user,
+          to: config.smtp.to,
+          replyTo: contact.email,
+          subject: `New Contact Request - ${contact.subject}`,
+          html: `
+            <h2>New Contact Request</h2>
+            <p><strong>Name:</strong> ${fullName || 'Anonymous'}</p>
+            <p><strong>Email:</strong> ${contact.email}</p>
+            <p><strong>Phone:</strong> ${contact.primaryContact}</p>
+            <p><strong>Secondary Phone:</strong> ${contact.secondaryContact || 'N/A'}</p>
+            <p><strong>Subject:</strong> ${contact.subject}</p>
+            <p><strong>Message:</strong></p>
+            <p>${safeMessage}</p>
+          `,
+        });
+      } catch (error) {
         console.error('Failed to send contact notification email:', error.message);
-      });
+      }
     } else {
       console.warn('Skipping contact notification email: SMTP configuration is incomplete.');
     }
 
     return res.status(201).json(
-      new ApiResponse(201, 'Contact submitted successfully', contact)
+      new ApiResponse(
+        201,
+        'Message submitted successfully',
+        contact
+      )
     );
   } catch (error) {
     const status = error.statusCode || error.status || 500;
