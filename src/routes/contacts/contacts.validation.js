@@ -38,7 +38,26 @@ const contactsSchema = z.object({
     .optional()
     .nullable(),
 
+  company: z
+    .string()
+    .trim()
+    .max(100, 'Company must be at most 100 characters long')
+    .optional()
+    .nullable(),
+
+  notes: z
+    .string()
+    .trim()
+    .max(1000, 'Notes must be at most 1000 characters long')
+    .optional()
+    .nullable(),
+
   contactType: contactTypeSchema.default('PRIMARY'),
+
+  isPrimaryBillingContact: z.boolean().optional().default(false),
+  isPrimaryShippingContact: z.boolean().optional().default(false),
+
+  customerId: z.string().optional().nullable(),
 });
 
 const updateContactsSchema = contactsSchema.partial().refine(

@@ -5,6 +5,9 @@ const ApiResponse = require('../../utils/ApiResponse');
 const createContact = async (req, res) => {
   try {
     const contact = await contactsModel.createContact(req.user.id, req.body);
+    if (!contact) {
+      throw new ApiError(404, 'Customer not found');
+    }
 
     return res.status(201).json(
       new ApiResponse(201, 'Contact created successfully', contact)
