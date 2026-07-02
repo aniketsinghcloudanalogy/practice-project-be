@@ -273,9 +273,11 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
     extractedData = await extractWithGroq(extractedText);
   } catch (error) {
     const statusCode = error.statusCode || 502;
+    const rawMessage = typeof error.message === 'string' ? error.message.trim() : '';
     const message =
       statusCode === 401 || statusCode === 403 ? 'Groq API authentication failed'
-        : statusCode === 429 ? 'Groq API rate limit exceeded'
+        : statusCode === 429
+          ? (rawMessage || 'Groq API rate limit exceeded. Please wait a moment and try again.')
           : error.message || 'Groq API failure';
     const mappedStatusCode = statusCode === 429 ? 429 : 502;
     throw new ApiError(mappedStatusCode, message);

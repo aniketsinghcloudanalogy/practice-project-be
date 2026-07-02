@@ -122,7 +122,7 @@ const getUploadWithTables = async (uploadId, userId) =>
 // ─── syncUploadTables — OPTIMIZED ────────────────────────────────────────────
 //  batch all reads up-front, then process tables with minimal queries
 
-const syncUploadTables = async ({ uploadId, userId, tables }) => {
+const syncUploadTables = async ({ uploadId, userId, tables, quoteId = null, quoteFileId = null }) => {
 
   return prisma.$transaction(async (tx) => {
 
@@ -359,8 +359,15 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
         const quoteContexts = quoteContextByTableId[tableId] ?? [];
 
         if (quoteContexts.length === 0) {
-          // No quote context — plain aiPdf LineItems
-          allLineItemsToCreate.push(...items);
+          if (quoteId && quoteFileId) {
+            // Manual mode from quote — attach provided quote context
+            for (const item of items) {
+              allLineItemsToCreate.push({ ...item, quote_id: quoteId, quote_file_id: quoteFileId });
+            }
+          } else {
+            // No quote context — plain aiPdf LineItems
+            allLineItemsToCreate.push(...items);
+          }
         } else {
           // Re-attach each quote context
           for (const { quote_id, quote_file_id } of quoteContexts) {
