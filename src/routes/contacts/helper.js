@@ -58,6 +58,7 @@ const normalizeCustomerContactDefaults = async (
   const pickDefault = (flag, preferContactId, avoidContactId) => {
     const flagged = contacts.filter((contact) => contact[flag]);
     const preferredFlagged = flagged.find((contact) => contact.id === preferContactId);
+    
 
     if (preferredFlagged) return preferredFlagged.id;
     if (flagged.length > 0) return flagged[0].id;
