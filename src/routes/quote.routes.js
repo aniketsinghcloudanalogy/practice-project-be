@@ -8,6 +8,7 @@ const {
   validateAddQuoteFiles,
   validateQuoteIdParam,
   validateQuoteFileIdParam,
+  validateLineItemIdParam,
 } = require('./quote/quote.validation');
 
 router.use(protect);
@@ -36,6 +37,34 @@ router
     validateQuoteIdParam,
     validateQuoteFileIdParam,
     quoteController.verifyQuoteFile
+  );
+
+router
+  .route('/:quoteId/files/:quoteFileId/line-items')
+  .post(
+    validateQuoteIdParam,
+    validateQuoteFileIdParam,
+    quoteController.createLineItem
+  )
+  .get(
+    validateQuoteIdParam,
+    validateQuoteFileIdParam,
+    quoteController.getLineItemsByFile
+  );
+
+router
+  .route('/:quoteId/files/:quoteFileId/line-items/:lineItemId')
+  .patch(
+    validateQuoteIdParam,
+    validateQuoteFileIdParam,
+    validateLineItemIdParam,
+    quoteController.updateLineItem
+  )
+  .delete(
+    validateQuoteIdParam,
+    validateQuoteFileIdParam,
+    validateLineItemIdParam,
+    quoteController.deleteLineItem
   );
 
 module.exports = router;

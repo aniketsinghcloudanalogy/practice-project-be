@@ -115,6 +115,16 @@ const validateQuoteFileIdParam = (req, res, next) => {
   return next();
 };
 
+const validateLineItemIdParam = (req, res, next) => {
+  const { lineItemId } = req.params;
+
+  if (!lineItemId || typeof lineItemId !== 'string' || lineItemId.trim().length === 0) {
+    return next(new ApiError(400, 'Invalid line item id'));
+  }
+
+  return next();
+};
+
 const seedDummyQuoteSchema = z.object({
   quoteCount: z.number().int().min(1).max(20).optional(),
   filesPerQuote: z.number().int().min(1).max(10).optional(),
@@ -128,5 +138,5 @@ module.exports = {
   validateAddQuoteFiles,
   validateQuoteIdParam,
   validateQuoteFileIdParam,
-
+  validateLineItemIdParam,
 };

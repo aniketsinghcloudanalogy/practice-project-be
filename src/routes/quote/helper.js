@@ -56,6 +56,10 @@ const isExcludedColumnNameForCounting = (name) => {
   return EXCLUDED_LINE_ITEM_COLUMN_KEYS.has(name.trim().toLowerCase());
 };
 
+// NOTE: countUniqueColumns is now ONLY used as a historical/legacy helper.
+// It no longer drives LineItem creation. It's kept here in case other
+// callers (badges, etc.) still reference it, but see the recommendation
+// at the bottom of this file about replacing it with a row-count helper.
 const countUniqueColumns = (tables = []) => {
   const seen = new Set();
 
@@ -84,6 +88,158 @@ const countUniqueColumns = (tables = []) => {
   }
 
   return seen.size;
+};
+
+// ── NEW: counts actual extracted rows (real line items), not column names ───
+const countExtractedRows = (tables = []) =>
+  tables.reduce((sum, table) => sum + (Array.isArray(table.rows) ? table.rows.length : 0), 0);
+
+// ── NEW: known LineItem DB fields we can auto-map PDF columns onto ──────────
+const LINE_ITEM_FIELD_OPTIONS = [
+  { key: 'lineNumber', label: 'Line No' },
+  { key: 'itemCode', label: 'Item Code' },
+  { key: 'employeeId', label: 'Employee ID' },
+  { key: 'employeeName', label: 'Employee Name' },
+  { key: 'description', label: 'Description' },
+  { key: 'department', label: 'Department' },
+  { key: 'category', label: 'Category' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'salary', label: 'Salary' },
+  { key: 'quantity', label: 'Quantity' },
+  { key: 'unitPrice', label: 'Unit Price' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'currency', label: 'Currency' },
+  { key: 'status', label: 'Status' },
+  { key: 'referenceNo', label: 'Reference No' },
+  { key: 'location', label: 'Location' },
+  { key: 'notes', label: 'Notes' },
+];
+
+// Short-form / common header aliases that won't match key/label directly
+const FIELD_ALIASES = {
+  qty: 'quantity',
+  price: 'unitPrice',
+  unitprice: 'unitPrice',
+  empid: 'employeeId',
+  employeeid: 'employeeId',
+  name: 'employeeName',
+  employeename: 'employeeName',
+  dept: 'department',
+  code: 'itemCode',
+  itemcode: 'itemCode',
+  total: 'amount',
+  ref: 'referenceNo',
+  refno: 'referenceNo',
+  line: 'lineNumber',
+  lineno: 'lineNumber',
+  desc: 'description',
+  part: 'description',
+  unit: 'unitPrice',
+};
+
+const normalizeFieldKey = (value) =>
+  String(value ?? '').trim().replace(/[_\s-]+/g, '').toLowerCase();
+
+/**
+ * Auto-detects a lineItemColumnMapping ({ sourceColumnKey: targetField })
+ * from a table's column titles, matching against known LineItem fields.
+ * Returns {} if nothing matches — that's fine, callers must still build
+ * LineItems for every row regardless (see buildLineItemRecordsWithFallback).
+ */
+const buildAutoColumnMapping = (columns = []) => {
+  const mapping = {};
+  const usedFields = new Set();
+  const unmatchedColumns = [];
+
+  // Pass 1 — exact key/label matches only (highest confidence, always wins)
+  for (const column of columns) {
+    const title = normalizeColumnNameForCounting(column);
+    if (!title) continue;
+    const normalizedTitle = normalizeFieldKey(title);
+
+    const directMatch = LINE_ITEM_FIELD_OPTIONS.find(
+      (f) => !usedFields.has(f.key) &&
+        (normalizeFieldKey(f.key) === normalizedTitle || normalizeFieldKey(f.label) === normalizedTitle)
+    );
+
+    if (directMatch) {
+      const columnKey = typeof column === 'string' ? column : column.key;
+      if (columnKey) {
+        mapping[columnKey] = directMatch.key;
+        usedFields.add(directMatch.key);
+      }
+    } else {
+      unmatchedColumns.push({ column, normalizedTitle });
+    }
+  }
+
+  // Pass 2 — only now fall back to aliases, for whatever direct matches missed
+  for (const { column, normalizedTitle } of unmatchedColumns) {
+    const aliasKey = FIELD_ALIASES[normalizedTitle];
+    if (!aliasKey || usedFields.has(aliasKey)) continue;
+
+    const columnKey = typeof column === 'string' ? column : column.key;
+    if (columnKey) {
+      mapping[columnKey] = aliasKey;
+      usedFields.add(aliasKey);
+    }
+  }
+
+  return mapping;
+};
+
+const buildLineItemRecordsWithFallback = ({ rows, columns, mapping, userId, tableId, tableTitle }) => {
+  const columnTitleByKey = new Map(
+    (columns || []).map((col) => [
+      typeof col === 'string' ? col : col.key,
+      typeof col === 'string' ? col : (col.title || col.key),
+    ])
+  );
+
+  const mappedSourceKeys = new Set(Object.keys(mapping));
+
+  return (rows || []).map((row, rowIndex) => {
+    const lineItem = {
+      userId,
+      pdfTableId: tableId,
+      sourceTableTitle: tableTitle || null,
+      rowSourceId: row.id || null,
+      rowIndex: row.rowIndex ?? rowIndex,
+    };
+
+    // 1) Fill every recognized field from the mapping
+    for (const [sourceColumn, targetField] of Object.entries(mapping)) {
+      const value = row.rowData?.[sourceColumn];
+      lineItem[targetField] = value === null || value === undefined ? null : String(value);
+    }
+
+    // 2) Collect anything that didn't map to a known field, keyed by column title
+    //    (stored as JSON so the frontend can render each as its own column)
+    const leftovers = {};
+    for (const [key, value] of Object.entries(row.rowData || {})) {
+      if (mappedSourceKeys.has(key)) continue;
+      if (value === null || value === undefined || value === '') continue;
+
+      const label = columnTitleByKey.get(key) || key;
+      leftovers[label] = value;
+    }
+
+    // 3) Persist leftovers in their own column. `notes` stays reserved for
+    //    a genuine "Notes" PDF column mapped by the user.
+    if (Object.keys(leftovers).length > 0) {
+      lineItem.extraFields = leftovers;
+    }
+
+    // 4) Absolute fallback: nothing matched at all for this table
+    if (Object.keys(mapping).length === 0 && !lineItem.description) {
+      lineItem.description = Object.entries(leftovers)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('; ') || null;
+    }
+
+    return lineItem;
+  });
 };
 
 const createQuoteForUser = async (userId, name, pdfUrl = null) => {
@@ -129,14 +285,14 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
     throw new ApiError(422, 'No tables found in PDF');
   }
 
-  const mergedExtractedData = {
-    tables: [mergeExtractedTables(extractedData.tables)],
-  };
+  // const mergedExtractedData = {
+  //   tables: [mergeExtractedTables(extractedData.tables)],
+  // };
 
   const processResult = await processUploadedPdf({
     userId,
     fileName: file.originalname,
-    extractedData: mergedExtractedData,
+    extractedData: extractedData,
   });
 
   const createdQuoteFile = await prisma.quoteFile.create({
@@ -170,55 +326,45 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
     })
     : [];
 
+  // ── Build one LineItem PER ROW, always ────────────────────────────────────
+  // For each table: auto-detect a column->field mapping, persist it onto the
+  // table (so "Update Columns" opens pre-filled), then build LineItems for
+  // every row regardless of how much/little of the mapping matched.
   const lineItemRowsForDb = [];
-  const seenTableColumnKeys = new Set();
+  const tableMappingUpdates = [];
 
   for (const table of storedTables) {
     const columns = Array.isArray(table.columns) ? table.columns : [];
-    const tableNames = [];
-    const tableSeen = new Set();
+    const mapping = buildAutoColumnMapping(columns);
 
-    for (const column of columns) {
-      const normalized = normalizeColumnNameForCounting(column);
-      if (!normalized || isExcludedColumnNameForCounting(normalized)) continue;
-      const identity = normalized.toLowerCase();
-      if (tableSeen.has(identity)) continue;
-      tableSeen.add(identity);
-      tableNames.push(normalized);
-    }
+    tableMappingUpdates.push(
+      prisma.pdfTable.update({
+        where: { id: table.id },
+        data: { lineItemColumnMapping: mapping },
+      })
+    );
 
-    if (tableNames.length === 0) {
-      for (const row of table.rows ?? []) {
-        const rowData = row?.rowData;
-        if (!rowData || typeof rowData !== 'object' || Array.isArray(rowData)) continue;
+    const records = buildLineItemRecordsWithFallback({
+      rows: table.rows,
+      columns,
+      mapping,
+      userId,
+      tableId: table.id,
+      tableTitle: table.title,
+    });
 
-        for (const key of Object.keys(rowData)) {
-          const normalized = key.trim();
-          if (!normalized || isExcludedColumnNameForCounting(normalized)) continue;
-          const identity = normalized.toLowerCase();
-          if (tableSeen.has(identity)) continue;
-          tableSeen.add(identity);
-          tableNames.push(normalized);
-        }
-      }
-    }
-
-    for (const name of tableNames) {
-      const compositeKey = `${table.id}:${name.toLowerCase()}`;
-      if (seenTableColumnKeys.has(compositeKey)) continue;
-      seenTableColumnKeys.add(compositeKey);
-
+    records.forEach((item, i) => {
       lineItemRowsForDb.push({
-        userId,
+        ...item,
         quote_id: quoteId,
         quote_file_id: createdQuoteFile.id,
-        pdfTableId: table.id,
-        sourceTableTitle: table.title ?? null,
-        lineNumber: String(lineItemRowsForDb.length + 1),
-        description: name,
-        rowIndex: lineItemRowsForDb.length,
+        lineNumber: item.lineNumber ?? String(lineItemRowsForDb.length + 1),
       });
-    }
+    });
+  }
+
+  if (tableMappingUpdates.length > 0) {
+    await Promise.all(tableMappingUpdates);
   }
 
   if (lineItemRowsForDb.length > 0) {
@@ -356,50 +502,22 @@ const getQuotesByUserId = async (userId) => {
     select: {
       id: true, quote_number: true, name: true, pdf_url: true,
       status: true, created_at: true,
-      quote_files: {
-        where: { is_deleted: false },
-        select: { id: true, pdf_upload_id: true },
-      },
       _count: { select: { quote_files: { where: { is_deleted: false } } } },
     },
   });
 
-  const uploadIds = [...new Set(
-    quotes.flatMap((quote) => quote.quote_files.map((file) => file.pdf_upload_id))
-  )];
+  const quoteIds = quotes.map((q) => q.id);
 
-  const tableColumnsByUpload = uploadIds.length
-    ? await prisma.pdfTable.findMany({
-      where: {
-        pdfUploadId: { in: uploadIds },
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        pdfUploadId: true,
-        title: true,
-        columns: true,
-        rows: {
-          where: { isDeleted: false },
-          orderBy: { rowIndex: 'asc' },
-          take: 1,
-          select: {
-            id: true,
-            rowData: true,
-            rowIndex: true,
-          },
-        },
-      },
+  const lineItemCounts = quoteIds.length
+    ? await prisma.lineItem.groupBy({
+      by: ['quote_id'],
+      where: { quote_id: { in: quoteIds }, isDeleted: false },
+      _count: { _all: true },
     })
     : [];
 
-  const tablesByUploadId = tableColumnsByUpload.reduce((acc, table) => {
-    (acc[table.pdfUploadId] ??= []).push(table);
-    return acc;
-  }, {});
-
-  const columnCountByUploadId = Object.fromEntries(
-    Object.entries(tablesByUploadId).map(([uploadId, tables]) => [uploadId, countUniqueColumns(tables)])
+  const lineItemCountByQuoteId = Object.fromEntries(
+    lineItemCounts.map((row) => [row.quote_id, row._count._all])
   );
 
   return quotes.map((quote) => ({
@@ -409,10 +527,7 @@ const getQuotesByUserId = async (userId) => {
     pdfUrl: quote.pdf_url,
     status: quote.status,
     fileCount: quote._count.quote_files,
-    lineItemCount: quote.quote_files.reduce(
-      (sum, file) => sum + (columnCountByUploadId[file.pdf_upload_id] ?? 0),
-      0
-    ),
+    lineItemCount: lineItemCountByQuoteId[quote.id] ?? 0,
     createdAt: quote.created_at,
   }));
 };
@@ -436,7 +551,6 @@ const getQuoteDetailById = async (quoteId, userId) => {
   });
 
   if (!quote) throw new ApiError(404, 'Quote not found');
-
   const uploadIds = quote.quote_files.map((file) => file.pdf_upload_id);
 
   const tables = uploadIds.length > 0
@@ -469,7 +583,18 @@ const getQuoteDetailById = async (quoteId, userId) => {
     return acc;
   }, {});
 
-  let totalExtractedRows = 0;
+  // ── real LineItem counts, grouped per file ──────────────────────────────
+  const lineItemGroups = quote.quote_files.length
+    ? await prisma.lineItem.groupBy({
+      by: ['quote_file_id'],
+      where: { quote_id: quoteId, isDeleted: false },
+      _count: { _all: true },
+    })
+    : [];
+
+  const lineItemCountByFileId = Object.fromEntries(
+    lineItemGroups.map((row) => [row.quote_file_id, row._count._all])
+  );
 
   return {
     quote: {
@@ -480,11 +605,10 @@ const getQuoteDetailById = async (quoteId, userId) => {
     },
     files: quote.quote_files.map((file) => {
       const fileTables = tablesByUploadId[file.pdf_upload_id] ?? [];
-      const lineItemCount = countUniqueColumns(fileTables);
-      totalExtractedRows += lineItemCount;
 
       return {
         ...file,
+        lineItemCount: lineItemCountByFileId[file.id] ?? 0,
         tables: fileTables.map((table) => ({
           id: table.id,
           title: table.title,
@@ -499,11 +623,10 @@ const getQuoteDetailById = async (quoteId, userId) => {
     }),
     counts: {
       fileCount: quote._count.quote_files,
-      lineItemCount: totalExtractedRows,
+      lineItemCount: Object.values(lineItemCountByFileId).reduce((a, b) => a + b, 0),
     },
   };
 };
-
 
 const getQuoteTablesByQuoteId = async (quoteId) =>
   prisma.pdfTable.findMany({
@@ -570,6 +693,7 @@ const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
       referenceNo: true,
       location: true,
       notes: true,
+      extraFields: true,
     },
   });
 
@@ -641,6 +765,246 @@ const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
 
   return { file: updatedQuoteFile };
 };
+
+const LINE_ITEM_SELECT = {
+  id: true,
+  lineNumber: true,
+  itemCode: true,
+  employeeId: true,
+  employeeName: true,
+  description: true,
+  department: true,
+  category: true,
+  email: true,
+  phone: true,
+  salary: true,
+  quantity: true,
+  unitPrice: true,
+  amount: true,
+  currency: true,
+  status: true,
+  referenceNo: true,
+  location: true,
+  notes: true,
+  extraFields: true,
+  pdfTableId: true,
+  sourceTableTitle: true,
+  rowIndex: true,
+  createdAt: true,
+  updatedAt: true,
+};
+
+const LINE_ITEM_UPDATABLE_FIELDS = new Set([
+  'lineNumber', 'itemCode', 'employeeId', 'employeeName', 'description',
+  'department', 'category', 'email', 'phone', 'salary', 'quantity',
+  'unitPrice', 'amount', 'currency', 'status', 'referenceNo', 'location', 'notes',
+]);
+
+const assertQuoteFileAccess = async (quoteFileId, quoteId, userId) => {
+  const quoteFile = await prisma.quoteFile.findFirst({
+    where: {
+      id: quoteFileId,
+      quote_id: quoteId,
+      is_deleted: false,
+      quote: { userId, is_deleted: false },
+    },
+    select: {
+      id: true,
+      pdf_upload_id: true,
+    },
+  });
+
+  if (!quoteFile) throw new ApiError(404, 'Quote file not found');
+  return quoteFile;
+};
+const createLineItem = async ({ quoteId, quoteFileId, userId, data = {} }) => {
+  const quoteFile = await assertQuoteFileAccess(quoteFileId, quoteId, userId);
+
+  const requestedPdfTableId = typeof data.pdfTableId === 'string' && data.pdfTableId.trim().length > 0
+    ? data.pdfTableId.trim()
+    : null;
+
+  let pdfTableId = requestedPdfTableId;
+  let sourceTableTitle = null;
+
+  if (pdfTableId) {
+    const table = await prisma.pdfTable.findFirst({
+      where: {
+        id: pdfTableId,
+        pdfUploadId: quoteFile.pdf_upload_id,
+        userId,
+        isDeleted: false,
+      },
+      select: { id: true, title: true },
+    });
+
+    if (!table) {
+      throw new ApiError(400, 'Invalid table reference for this quote file');
+    }
+
+    pdfTableId = table.id;
+    sourceTableTitle = table.title ?? null;
+  }
+
+  if (!pdfTableId) {
+    const latestLineItem = await prisma.lineItem.findFirst({
+      where: {
+        userId,
+        quote_id: quoteId,
+        quote_file_id: quoteFileId,
+        isDeleted: false,
+      },
+      orderBy: [{ rowIndex: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        pdfTableId: true,
+        sourceTableTitle: true,
+      },
+    });
+
+    if (latestLineItem?.pdfTableId) {
+      pdfTableId = latestLineItem.pdfTableId;
+      sourceTableTitle = latestLineItem.sourceTableTitle ?? null;
+    }
+  }
+
+  if (!pdfTableId) {
+    const firstUploadTable = await prisma.pdfTable.findFirst({
+      where: {
+        pdfUploadId: quoteFile.pdf_upload_id,
+        userId,
+        isDeleted: false,
+      },
+      orderBy: [{ createdAt: 'asc' }],
+      select: { id: true, title: true },
+    });
+
+    if (firstUploadTable?.id) {
+      pdfTableId = firstUploadTable.id;
+      sourceTableTitle = firstUploadTable.title ?? null;
+    }
+  }
+
+  if (!pdfTableId) {
+    throw new ApiError(400, 'No table available to attach the new line item');
+  }
+
+  const nextRowIndex = typeof data.rowIndex === 'number'
+    ? data.rowIndex
+    : await prisma.lineItem.count({
+      where: {
+        userId,
+        quote_id: quoteId,
+        quote_file_id: quoteFileId,
+        isDeleted: false,
+      },
+    });
+
+  const createData = {
+    userId,
+    quote_id: quoteId,
+    quote_file_id: quoteFileId,
+    pdfTableId,
+    sourceTableTitle,
+    rowIndex: nextRowIndex,
+  };
+
+  for (const [key, value] of Object.entries(data)) {
+    if (LINE_ITEM_UPDATABLE_FIELDS.has(key)) {
+      createData[key] = value ?? null;
+    }
+  }
+
+  const created = await prisma.lineItem.create({
+    data: createData,
+    select: LINE_ITEM_SELECT,
+  });
+
+  return { lineItem: created };
+};
+
+
+const getLineItemsByQuoteFileId = async ({ quoteId, quoteFileId, userId }) => {
+  await assertQuoteFileAccess(quoteFileId, quoteId, userId);
+
+  const lineItems = await prisma.lineItem.findMany({
+    where: {
+      userId,
+      quote_id: quoteId,
+      quote_file_id: quoteFileId,
+      isDeleted: false,
+    },
+    orderBy: { rowIndex: 'asc' },
+    select: LINE_ITEM_SELECT,
+  });
+
+  return { lineItems };
+};
+
+const updateLineItem = async ({ lineItemId, quoteId, quoteFileId, userId, data }) => {
+  const lineItem = await prisma.lineItem.findFirst({
+    where: {
+      id: lineItemId,
+      userId,
+      quote_id: quoteId,
+      quote_file_id: quoteFileId,
+      isDeleted: false,
+    },
+    select: { id: true, extraFields: true },
+  });
+
+  if (!lineItem) throw new ApiError(404, 'Line item not found');
+
+  const updateData = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (LINE_ITEM_UPDATABLE_FIELDS.has(key)) {
+      updateData[key] = value ?? null;
+    }
+  }
+
+  if (data.extraFieldKey) {
+    const currentExtra = (lineItem.extraFields && typeof lineItem.extraFields === 'object' && !Array.isArray(lineItem.extraFields))
+      ? { ...lineItem.extraFields }
+      : {};
+
+    currentExtra[data.extraFieldKey] = data.extraFieldValue ?? null;
+    updateData.extraFields = currentExtra;
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    throw new ApiError(400, 'No valid fields to update');
+  }
+
+  const updated = await prisma.lineItem.update({
+    where: { id: lineItemId },
+    data: updateData,
+    select: LINE_ITEM_SELECT,
+  });
+
+  return { lineItem: updated };
+};
+
+const deleteLineItem = async ({ lineItemId, quoteId, quoteFileId, userId }) => {
+  const lineItem = await prisma.lineItem.findFirst({
+    where: {
+      id: lineItemId,
+      userId,
+      quote_id: quoteId,
+      quote_file_id: quoteFileId,
+      isDeleted: false,
+    },
+    select: { id: true },
+  });
+
+  if (!lineItem) throw new ApiError(404, 'Line item not found');
+
+  await prisma.lineItem.update({
+    where: { id: lineItemId },
+    data: { isDeleted: true },
+  });
+
+  return { id: lineItemId };
+};
+
 module.exports = {
   createQuoteWithUploads,
   addFilesToExistingQuote,
@@ -648,4 +1012,8 @@ module.exports = {
   getQuoteDetailById,
   getQuoteTablesByQuoteId,
   verifyQuoteFileById,
+  getLineItemsByQuoteFileId,
+  createLineItem,
+  updateLineItem,
+  deleteLineItem,
 };

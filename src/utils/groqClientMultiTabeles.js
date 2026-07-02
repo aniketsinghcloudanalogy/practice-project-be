@@ -233,8 +233,6 @@ const normalizeColumnDef = (col) => {
   };
 };
 
-
-
 const mergeExtractedTables = (tables = []) => {
   if (!Array.isArray(tables) || tables.length === 0) {
     return { title: 'Merged Table', columns: [], rows: [] };

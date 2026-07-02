@@ -347,7 +347,6 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
             pdfTableId: { in: changedTableIdList },
             userId,
             isDeleted: false,
-            is_Verifed: false,
           },
           data: { isDeleted: true },
         }),
@@ -378,6 +377,97 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
 
       if (allLineItemsToCreate.length > 0) {
         await tx.lineItem.createMany({ data: allLineItemsToCreate });
+      }
+
+      // Keep quote verification state/profitability rows in sync for quote-linked tables.
+      const quoteContextsToVerify = existingQuoteContext
+        .filter((row) => Boolean(row.quote_id) && Boolean(row.quote_file_id))
+        .reduce((acc, row) => {
+          const key = `${row.quote_id}:${row.quote_file_id}`;
+          if (!acc.map.has(key)) {
+            acc.map.set(key, {
+              quote_id: row.quote_id,
+              quote_file_id: row.quote_file_id,
+            });
+            acc.list.push({
+              quote_id: row.quote_id,
+              quote_file_id: row.quote_file_id,
+            });
+          }
+          return acc;
+        }, { map: new Map(), list: [] }).list;
+
+      if (quoteContextsToVerify.length > 0) {
+        const quoteFileIdsToVerify = quoteContextsToVerify.map((ctx) => ctx.quote_file_id);
+
+        await tx.quoteFile.updateMany({
+          where: {
+            id: { in: quoteFileIdsToVerify },
+            quote: { userId, is_deleted: false },
+            is_deleted: false,
+          },
+          data: { is_Verifed: true },
+        });
+
+        for (const context of quoteContextsToVerify) {
+          const itemsForProfitability = await tx.lineItem.findMany({
+            where: {
+              userId,
+              quote_id: context.quote_id,
+              quote_file_id: context.quote_file_id,
+              pdfTableId: { in: changedTableIdList },
+              isDeleted: false,
+            },
+            select: {
+              pdfTableId: true,
+              sourceTableTitle: true,
+              rowSourceId: true,
+              rowIndex: true,
+              lineNumber: true,
+              itemCode: true,
+              employeeId: true,
+              employeeName: true,
+              description: true,
+              department: true,
+              category: true,
+              email: true,
+              phone: true,
+              salary: true,
+              quantity: true,
+              unitPrice: true,
+              amount: true,
+              currency: true,
+              status: true,
+              referenceNo: true,
+              location: true,
+              notes: true,
+              extraFields: true,
+            },
+          });
+
+          if (itemsForProfitability.length > 0) {
+            await tx.profitabilty_line_items.createMany({
+              data: itemsForProfitability.map((item) => ({
+                ...item,
+                userId,
+                quote_id: context.quote_id,
+                quote_file_id: context.quote_file_id,
+                is_Verifed: true,
+              })),
+            });
+          }
+
+          await tx.profitabilty_line_items.updateMany({
+            where: {
+              userId,
+              quote_id: context.quote_id,
+              quote_file_id: context.quote_file_id,
+              isDeleted: false,
+              is_Verifed: false,
+            },
+            data: { is_Verifed: true },
+          });
+        }
       }
     }
 
@@ -438,4 +528,5 @@ module.exports = {
   getUploadWithTables,
   syncUploadTables,
   softDeleteUploadById,
+  buildLineItemRecords,
 };

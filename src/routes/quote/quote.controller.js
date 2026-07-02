@@ -63,7 +63,61 @@ const verifyQuoteFile = asyncHandler(async (req, res) => {
     new ApiResponse(200, 'Quote file verified successfully', result)
   );
 });
-  
+
+const createLineItem = asyncHandler(async (req, res) => {
+  const result = await quoteModel.createLineItem({
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+    data: req.body,
+  });
+
+  return res.status(201).json(
+    new ApiResponse(201, 'Line item created successfully', result)
+  );
+});
+
+
+
+
+const getLineItemsByFile = asyncHandler(async (req, res) => {
+  const result = await quoteModel.getLineItemsByQuoteFileId({
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, 'Line items fetched successfully', result)
+  );
+});
+
+const updateLineItem = asyncHandler(async (req, res) => {
+  const result = await quoteModel.updateLineItem({
+    lineItemId: req.params.lineItemId,
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+    data: req.body,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, 'Line item updated successfully', result)
+  );
+});
+
+const deleteLineItem = asyncHandler(async (req, res) => {
+  const result = await quoteModel.deleteLineItem({
+    lineItemId: req.params.lineItemId,
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, 'Line item deleted successfully', result)
+  );
+});
 
 module.exports = {
   createQuote,
@@ -71,4 +125,8 @@ module.exports = {
   getQuotes,
   getQuoteDetail,
   verifyQuoteFile,
+  createLineItem,
+  getLineItemsByFile,
+  updateLineItem,
+  deleteLineItem,
 };
