@@ -119,6 +119,73 @@ const deleteLineItem = asyncHandler(async (req, res) => {
   );
 });
 
+const bulkDeleteLineItems = asyncHandler(async (req, res) => {
+  const result = await quoteModel.bulkDeleteLineItems({
+    lineItemIds: req.body.lineItemIds,
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, 'Line items deleted successfully', result)
+  );
+});
+
+const bulkUpdateLineItems = asyncHandler(async (req, res) => {
+  const result = await quoteModel.bulkUpdateLineItems({
+    lineItemIds: req.body.lineItemIds,
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+    data: req.body.data,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, 'Line items updated successfully', result)
+  );
+});
+
+const getProfitabilityLineItems = asyncHandler(async (req, res) => {
+  const result = await quoteModel.getProfitabilityLineItems({
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+  });
+  return res.status(200).json(new ApiResponse(200, 'Profitability line items fetched', result));
+});
+
+const bulkUpdateProfitabilityLineItems = asyncHandler(async (req, res) => {
+  const result = await quoteModel.bulkUpdateProfitabilityLineItems({
+    lineItemIds: req.body.lineItemIds,
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+    data: req.body.data,
+  });
+  return res.status(200).json(new ApiResponse(200, 'Profitability line items updated', result));
+});
+
+const bulkDeleteProfitabilityLineItems = asyncHandler(async (req, res) => {
+  const result = await quoteModel.bulkDeleteProfitabilityLineItems({
+    lineItemIds: req.body.lineItemIds,
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+  });
+  return res.status(200).json(new ApiResponse(200, 'Profitability line items deleted', result));
+});
+
+const deleteProfitabilityLineItem = asyncHandler(async (req, res) => {
+  const result = await quoteModel.deleteProfitabilityLineItem({
+    itemId: req.params.itemId,
+    quoteId: req.params.quoteId,
+    quoteFileId: req.params.quoteFileId,
+    userId: req.user.id,
+  });
+  return res.status(200).json(new ApiResponse(200, 'Profitability line item deleted', result));
+});
+
 module.exports = {
   createQuote,
   addFilesToQuote,
@@ -129,4 +196,10 @@ module.exports = {
   getLineItemsByFile,
   updateLineItem,
   deleteLineItem,
+  bulkDeleteLineItems,
+  bulkUpdateLineItems,
+  getProfitabilityLineItems,
+  bulkUpdateProfitabilityLineItems,
+  bulkDeleteProfitabilityLineItems,
+  deleteProfitabilityLineItem,
 };

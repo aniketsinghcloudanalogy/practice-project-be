@@ -3,7 +3,7 @@ const fs = require('fs');
 const prisma = require('../../config/prisma');
 const ApiError = require('../../utils/ApiError');
 const { extractPdfText } = require('../../utils/pdfExtractor');
-const { extractWithGroq, mergeExtractedTables } = require('../../utils/groqClientMultiTabeles');
+const { extractWithGroq } = require('../../utils/groqClientMultiTabeles');
 const { processUploadedPdf } = require('../aiPdf/helper');
 
 
@@ -27,74 +27,37 @@ const QUOTE_FILE_SELECT = {
   created_at: true,
 };
 
-const removeLocalFile = (filePath) => {
-  if (filePath) fs.unlink(filePath, () => { });
+const PROF_SELECT = {
+  id: true,
+  lineNumber: true,
+  itemCode: true,
+  employeeId: true,
+  employeeName: true,
+  description: true,
+  department: true,
+  category: true,
+  email: true,
+  phone: true,
+  salary: true,
+  quantity: true,
+  unitPrice: true,
+  amount: true,
+  currency: true,
+  status: true,
+  referenceNo: true,
+  location: true,
+  notes: true,
+  extraFields: true,
+  pdfTableId: true,
+  sourceTableTitle: true,
+  rowIndex: true,
+  createdAt: true,
+  updatedAt: true,
 };
 
-const EXCLUDED_LINE_ITEM_COLUMN_KEYS = new Set([
-  'createdat',
-  'updatedat',
-  'created_at',
-  'updated_at',
-]);
 
-const normalizeColumnNameForCounting = (column) => {
-  if (typeof column === 'string') {
-    const trimmed = column.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
 
-  if (!column || typeof column !== 'object') return null;
-
-  const candidates = [column.key, column.label, column.title, column.name, column.header, column.field];
-  const match = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
-  return match ? match.trim() : null;
-};
-
-const isExcludedColumnNameForCounting = (name) => {
-  if (typeof name !== 'string') return false;
-  return EXCLUDED_LINE_ITEM_COLUMN_KEYS.has(name.trim().toLowerCase());
-};
-
-// NOTE: countUniqueColumns is now ONLY used as a historical/legacy helper.
-// It no longer drives LineItem creation. It's kept here in case other
-// callers (badges, etc.) still reference it, but see the recommendation
-// at the bottom of this file about replacing it with a row-count helper.
-const countUniqueColumns = (tables = []) => {
-  const seen = new Set();
-
-  for (const table of tables) {
-    const columns = Array.isArray(table.columns) ? table.columns : [];
-
-    for (const column of columns) {
-      const name = normalizeColumnNameForCounting(column);
-      if (!name || isExcludedColumnNameForCounting(name)) continue;
-      seen.add(`${table.id}:${name.toLowerCase()}`);
-    }
-
-    if (columns.length > 0) continue;
-
-    const rows = Array.isArray(table.rows) ? table.rows : [];
-    for (const row of rows) {
-      const rowData = row?.rowData;
-      if (!rowData || typeof rowData !== 'object' || Array.isArray(rowData)) continue;
-
-      for (const key of Object.keys(rowData)) {
-        const trimmed = key.trim();
-        if (!trimmed || isExcludedColumnNameForCounting(trimmed)) continue;
-        seen.add(`${table.id}:${trimmed.toLowerCase()}`);
-      }
-    }
-  }
-
-  return seen.size;
-};
-
-// ── NEW: counts actual extracted rows (real line items), not column names ───
-const countExtractedRows = (tables = []) =>
-  tables.reduce((sum, table) => sum + (Array.isArray(table.rows) ? table.rows.length : 0), 0);
-
-// ── NEW: known LineItem DB fields we can auto-map PDF columns onto ──────────
+// ── known LineItem DB fields we can auto-map PDF columns onto ──────────
 const LINE_ITEM_FIELD_OPTIONS = [
   { key: 'lineNumber', label: 'Line No' },
   { key: 'itemCode', label: 'Item Code' },
@@ -138,15 +101,61 @@ const FIELD_ALIASES = {
   unit: 'unitPrice',
 };
 
+const LINE_ITEM_SELECT = {
+  id: true,
+  lineNumber: true,
+  itemCode: true,
+  employeeId: true,
+  employeeName: true,
+  description: true,
+  department: true,
+  category: true,
+  email: true,
+  phone: true,
+  salary: true,
+  quantity: true,
+  unitPrice: true,
+  amount: true,
+  currency: true,
+  status: true,
+  referenceNo: true,
+  location: true,
+  notes: true,
+  extraFields: true,
+  pdfTableId: true,
+  sourceTableTitle: true,
+  rowIndex: true,
+  createdAt: true,
+  updatedAt: true,
+};
+
+const LINE_ITEM_UPDATABLE_FIELDS = new Set([
+  'lineNumber', 'itemCode', 'employeeId', 'employeeName', 'description',
+  'department', 'category', 'email', 'phone', 'salary', 'quantity',
+  'unitPrice', 'amount', 'currency', 'status', 'referenceNo', 'location', 'notes',
+]);
+
+
+const removeLocalFile = (filePath) => {
+  if (filePath) fs.unlink(filePath, () => { });
+};
+
+const normalizeColumnNameForCounting = (column) => {
+  if (typeof column === 'string') {
+    const trimmed = column.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (!column || typeof column !== 'object') return null;
+
+  const candidates = [column.key, column.label, column.title, column.name, column.header, column.field];
+  const match = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+  return match ? match.trim() : null;
+};
 const normalizeFieldKey = (value) =>
   String(value ?? '').trim().replace(/[_\s-]+/g, '').toLowerCase();
 
-/**
- * Auto-detects a lineItemColumnMapping ({ sourceColumnKey: targetField })
- * from a table's column titles, matching against known LineItem fields.
- * Returns {} if nothing matches — that's fine, callers must still build
- * LineItems for every row regardless (see buildLineItemRecordsWithFallback).
- */
+
 const buildAutoColumnMapping = (columns = []) => {
   const mapping = {};
   const usedFields = new Set();
@@ -287,46 +296,36 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
     throw new ApiError(422, 'No tables found in PDF');
   }
 
-  // const mergedExtractedData = {
-  //   tables: [mergeExtractedTables(extractedData.tables)],
-  // };
-
   const processResult = await processUploadedPdf({
     userId,
     fileName: file.originalname,
     extractedData: extractedData,
   });
 
-  const createdQuoteFile = await prisma.quoteFile.create({
-    data: { quote_id: quoteId, pdf_upload_id: processResult.uploadId, file_name: file.originalname },
-    select: QUOTE_FILE_SELECT,
-  });
-
   const createdTableIds = processResult.tables.map((table) => table.tableId);
 
-  const storedTables = createdTableIds.length > 0
-    ? await prisma.pdfTable.findMany({
-      where: {
-        id: { in: createdTableIds },
-        isDeleted: false,
-      },
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        title: true,
-        columns: true,
-        rows: {
-          where: { isDeleted: false },
-          orderBy: { rowIndex: 'asc' },
-          select: {
-            id: true,
-            rowData: true,
-            rowIndex: true,
+  const [createdQuoteFile, storedTables] = await Promise.all([
+    prisma.quoteFile.create({
+      data: { quote_id: quoteId, pdf_upload_id: processResult.uploadId, file_name: file.originalname },
+      select: QUOTE_FILE_SELECT,
+    }),
+    createdTableIds.length > 0
+      ? prisma.pdfTable.findMany({
+        where: { id: { in: createdTableIds }, isDeleted: false },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          columns: true,
+          rows: {
+            where: { isDeleted: false },
+            orderBy: { rowIndex: 'asc' },
+            select: { id: true, rowData: true, rowIndex: true },
           },
         },
-      },
-    })
-    : [];
+      })
+      : Promise.resolve([]),
+  ]);
 
   // ── Build one LineItem PER ROW, always ────────────────────────────────────
   // For each table: auto-detect a column->field mapping, persist it onto the
@@ -365,16 +364,12 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
     });
   }
 
-  if (tableMappingUpdates.length > 0) {
-    await Promise.all(tableMappingUpdates);
-  }
-
-  if (lineItemRowsForDb.length > 0) {
-    await prisma.lineItem.createMany({
-      data: lineItemRowsForDb,
-      skipDuplicates: true,
-    });
-  }
+  await Promise.all([
+    ...tableMappingUpdates,
+    ...(lineItemRowsForDb.length > 0
+      ? [prisma.lineItem.createMany({ data: lineItemRowsForDb, skipDuplicates: true })]
+      : []),
+  ]);
 
   const tables = storedTables.map((table) => ({
     id: table.id,
@@ -555,30 +550,39 @@ const getQuoteDetailById = async (quoteId, userId) => {
   if (!quote) throw new ApiError(404, 'Quote not found');
   const uploadIds = quote.quote_files.map((file) => file.pdf_upload_id);
 
-  const tables = uploadIds.length > 0
-    ? await prisma.pdfTable.findMany({
-      where: {
-        isDeleted: false,
-        pdfUploadId: { in: uploadIds },
-      },
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        pdfUploadId: true,
-        title: true,
-        columns: true,
-        rows: {
-          where: { isDeleted: false },
-          orderBy: { rowIndex: 'asc' },
-          select: {
-            id: true,
-            rowData: true,
-            rowIndex: true,
+  const [tables, lineItemGroups, profLineItemGroups] = await Promise.all([
+    uploadIds.length > 0
+      ? prisma.pdfTable.findMany({
+        where: { isDeleted: false, pdfUploadId: { in: uploadIds } },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          pdfUploadId: true,
+          title: true,
+          columns: true,
+          rows: {
+            where: { isDeleted: false },
+            orderBy: { rowIndex: 'asc' },
+            select: { id: true, rowData: true, rowIndex: true },
           },
         },
-      },
-    })
-    : [];
+      })
+      : Promise.resolve([]),
+    quote.quote_files.length
+      ? prisma.lineItem.groupBy({
+        by: ['quote_file_id'],
+        where: { quote_id: quoteId, isDeleted: false },
+        _count: { _all: true },
+      })
+      : Promise.resolve([]),
+    quote.quote_files.length
+      ? prisma.profitabilty_line_items.groupBy({
+        by: ['quote_file_id'],
+        where: { quote_id: quoteId, isDeleted: false },
+        _count: { _all: true },
+      })
+      : Promise.resolve([]),
+  ]);
 
   const tablesByUploadId = tables.reduce((acc, table) => {
     (acc[table.pdfUploadId] ??= []).push(table);
@@ -586,17 +590,30 @@ const getQuoteDetailById = async (quoteId, userId) => {
   }, {});
 
   // ── real LineItem counts, grouped per file ──────────────────────────────
-  const lineItemGroups = quote.quote_files.length
-    ? await prisma.lineItem.groupBy({
-      by: ['quote_file_id'],
-      where: { quote_id: quoteId, isDeleted: false },
-      _count: { _all: true },
-    })
-    : [];
-
   const lineItemCountByFileId = Object.fromEntries(
     lineItemGroups.map((row) => [row.quote_file_id, row._count._all])
   );
+
+  // ── profitability line item counts for verified files ────────────────────
+
+  const profLineItemCountByFileId = Object.fromEntries(
+    profLineItemGroups.map((row) => [row.quote_file_id, row._count._all]),
+  );
+
+  // For verified files, use profitability count (reflects deletions);
+  // for unverified files, fall back to regular lineItem count.
+  const effectiveLineItemCount = (file) =>
+    file.is_Verifed
+      ? (profLineItemCountByFileId[file.id] ?? 0)
+      : (lineItemCountByFileId[file.id] ?? 0);
+
+  const reviewLineItemCount = quote.quote_files
+    .filter((f) => !f.is_Verifed)
+    .reduce((sum, f) => sum + (lineItemCountByFileId[f.id] ?? 0), 0);
+
+  const profitabilityLineItemCount = quote.quote_files
+    .filter((f) => f.is_Verifed)
+    .reduce((sum, f) => sum + (profLineItemCountByFileId[f.id] ?? 0), 0);
 
   return {
     quote: {
@@ -610,7 +627,7 @@ const getQuoteDetailById = async (quoteId, userId) => {
 
       return {
         ...file,
-        lineItemCount: lineItemCountByFileId[file.id] ?? 0,
+        lineItemCount: effectiveLineItemCount(file),
         tables: fileTables.map((table) => ({
           id: table.id,
           title: table.title,
@@ -625,7 +642,9 @@ const getQuoteDetailById = async (quoteId, userId) => {
     }),
     counts: {
       fileCount: quote._count.quote_files,
-      lineItemCount: Object.values(lineItemCountByFileId).reduce((a, b) => a + b, 0),
+      lineItemCount: reviewLineItemCount + profitabilityLineItemCount,
+      reviewLineItemCount,
+      profitabilityLineItemCount,
     },
   };
 };
@@ -633,10 +652,14 @@ const getQuoteDetailById = async (quoteId, userId) => {
 const getQuoteTablesByQuoteId = async (quoteId) =>
   prisma.pdfTable.findMany({
     where: { pdfUpload: { quoteFiles: { some: { quote_id: quoteId } } } },
-    include: {
+    select: {
+      id: true,
+      title: true,
+      columns: true,
       rows: {
         where: { isDeleted: false },
         orderBy: { rowIndex: 'asc' },
+        select: { id: true, rowData: true, rowIndex: true },
       },
     },
   });
@@ -664,51 +687,41 @@ const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
 
   if (quoteFile.is_Verifed) return { file: quoteFile };
 
-  // 2. Fetch existing LineItems for this file
-  const existingLineItems = await prisma.lineItem.findMany({
-    where: {
-      userId,
-      quote_id: quoteId,
-      quote_file_id: quoteFileId,
-      isDeleted: false,
-    },
-    select: {
-      pdfTableId: true,
-      sourceTableTitle: true,
-      rowSourceId: true,
-      rowIndex: true,
-      lineNumber: true,
-      itemCode: true,
-      employeeId: true,
-      employeeName: true,
-      description: true,
-      department: true,
-      category: true,
-      email: true,
-      phone: true,
-      salary: true,
-      quantity: true,
-      unitPrice: true,
-      amount: true,
-      currency: true,
-      status: true,
-      referenceNo: true,
-      location: true,
-      notes: true,
-      extraFields: true,
-    },
-  });
-
-  // 3. Find which ones are already in profitability table (by pdfTableId + description as identity)
-  const existingProfitability = await prisma.profitabilty_line_items.findMany({
-    where: {
-      userId,
-      quote_id: quoteId,
-      quote_file_id: quoteFileId,
-      isDeleted: false,
-    },
-    select: { pdfTableId: true, description: true },
-  });
+  // 2 & 3. Fetch line items and existing profitability records concurrently — independent reads
+  const [existingLineItems, existingProfitability] = await Promise.all([
+    prisma.lineItem.findMany({
+      where: { userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+      select: {
+        pdfTableId: true,
+        sourceTableTitle: true,
+        rowSourceId: true,
+        rowIndex: true,
+        lineNumber: true,
+        itemCode: true,
+        employeeId: true,
+        employeeName: true,
+        description: true,
+        department: true,
+        category: true,
+        email: true,
+        phone: true,
+        salary: true,
+        quantity: true,
+        unitPrice: true,
+        amount: true,
+        currency: true,
+        status: true,
+        referenceNo: true,
+        location: true,
+        notes: true,
+        extraFields: true,
+      },
+    }),
+    prisma.profitabilty_line_items.findMany({
+      where: { userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+      select: { pdfTableId: true, description: true },
+    }),
+  ]);
 
   const alreadySynced = new Set(
     existingProfitability.map((p) => `${p.pdfTableId}:${p.description ?? ''}`),
@@ -768,39 +781,7 @@ const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
   return { file: updatedQuoteFile };
 };
 
-const LINE_ITEM_SELECT = {
-  id: true,
-  lineNumber: true,
-  itemCode: true,
-  employeeId: true,
-  employeeName: true,
-  description: true,
-  department: true,
-  category: true,
-  email: true,
-  phone: true,
-  salary: true,
-  quantity: true,
-  unitPrice: true,
-  amount: true,
-  currency: true,
-  status: true,
-  referenceNo: true,
-  location: true,
-  notes: true,
-  extraFields: true,
-  pdfTableId: true,
-  sourceTableTitle: true,
-  rowIndex: true,
-  createdAt: true,
-  updatedAt: true,
-};
 
-const LINE_ITEM_UPDATABLE_FIELDS = new Set([
-  'lineNumber', 'itemCode', 'employeeId', 'employeeName', 'description',
-  'department', 'category', 'email', 'phone', 'salary', 'quantity',
-  'unitPrice', 'amount', 'currency', 'status', 'referenceNo', 'location', 'notes',
-]);
 
 const assertQuoteFileAccess = async (quoteFileId, quoteId, userId) => {
   const quoteFile = await prisma.quoteFile.findFirst({
@@ -821,6 +802,14 @@ const assertQuoteFileAccess = async (quoteFileId, quoteId, userId) => {
 };
 const createLineItem = async ({ quoteId, quoteFileId, userId, data = {} }) => {
   const quoteFile = await assertQuoteFileAccess(quoteFileId, quoteId, userId);
+
+  // Fire the row-count query immediately so it runs concurrently with the
+  // pdfTableId resolution chain below (they're fully independent).
+  const nextRowIndexPromise = typeof data.rowIndex === 'number'
+    ? Promise.resolve(data.rowIndex)
+    : prisma.lineItem.count({
+      where: { userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+    });
 
   const requestedPdfTableId = typeof data.pdfTableId === 'string' && data.pdfTableId.trim().length > 0
     ? data.pdfTableId.trim()
@@ -890,16 +879,7 @@ const createLineItem = async ({ quoteId, quoteFileId, userId, data = {} }) => {
     throw new ApiError(400, 'No table available to attach the new line item');
   }
 
-  const nextRowIndex = typeof data.rowIndex === 'number'
-    ? data.rowIndex
-    : await prisma.lineItem.count({
-      where: {
-        userId,
-        quote_id: quoteId,
-        quote_file_id: quoteFileId,
-        isDeleted: false,
-      },
-    });
+  const nextRowIndex = await nextRowIndexPromise;
 
   const createData = {
     userId,
@@ -926,15 +906,8 @@ const createLineItem = async ({ quoteId, quoteFileId, userId, data = {} }) => {
 
 
 const getLineItemsByQuoteFileId = async ({ quoteId, quoteFileId, userId }) => {
-  await assertQuoteFileAccess(quoteFileId, quoteId, userId);
-
   const lineItems = await prisma.lineItem.findMany({
-    where: {
-      userId,
-      quote_id: quoteId,
-      quote_file_id: quoteFileId,
-      isDeleted: false,
-    },
+    where: { userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
     orderBy: { rowIndex: 'asc' },
     select: LINE_ITEM_SELECT,
   });
@@ -986,25 +959,108 @@ const updateLineItem = async ({ lineItemId, quoteId, quoteFileId, userId, data }
 };
 
 const deleteLineItem = async ({ lineItemId, quoteId, quoteFileId, userId }) => {
-  const lineItem = await prisma.lineItem.findFirst({
-    where: {
-      id: lineItemId,
-      userId,
-      quote_id: quoteId,
-      quote_file_id: quoteFileId,
-      isDeleted: false,
-    },
-    select: { id: true },
-  });
-
-  if (!lineItem) throw new ApiError(404, 'Line item not found');
-
-  await prisma.lineItem.update({
-    where: { id: lineItemId },
+  const { count } = await prisma.lineItem.updateMany({
+    where: { id: lineItemId, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
     data: { isDeleted: true },
   });
 
+  if (count === 0) throw new ApiError(404, 'Line item not found');
   return { id: lineItemId };
+};
+
+const bulkDeleteLineItems = async ({ lineItemIds, quoteId, quoteFileId, userId }) => {
+  if (!Array.isArray(lineItemIds) || lineItemIds.length === 0) {
+    throw new ApiError(400, 'lineItemIds must be a non-empty array');
+  }
+
+  const { count } = await prisma.lineItem.updateMany({
+    where: { id: { in: lineItemIds }, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+    data: { isDeleted: true },
+  });
+
+  return { count };
+};
+
+const bulkUpdateLineItems = async ({ lineItemIds, quoteId, quoteFileId, userId, data = {} }) => {
+  if (!Array.isArray(lineItemIds) || lineItemIds.length === 0) {
+    throw new ApiError(400, 'lineItemIds must be a non-empty array');
+  }
+
+  const updateData = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (LINE_ITEM_UPDATABLE_FIELDS.has(key)) updateData[key] = value ?? null;
+  }
+  if (Object.keys(updateData).length === 0) throw new ApiError(400, 'No valid fields to update');
+
+  const { count } = await prisma.lineItem.updateMany({
+    where: { id: { in: lineItemIds }, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+    data: updateData,
+  });
+
+  const lineItems = count > 0
+    ? await prisma.lineItem.findMany({
+      where: { id: { in: lineItemIds }, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+      select: LINE_ITEM_SELECT,
+    })
+    : [];
+
+  return { count, lineItems };
+};
+
+// ─── Profitability line items ─────────────────────────────────────────────────
+
+
+const getProfitabilityLineItems = async ({ quoteId, quoteFileId, userId }) => {
+  const items = await prisma.profitabilty_line_items.findMany({
+    where: { userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+    orderBy: [{ rowIndex: 'asc' }, { createdAt: 'asc' }],
+    select: PROF_SELECT,
+  });
+
+  return { lineItems: items };
+};
+
+const bulkUpdateProfitabilityLineItems = async ({ lineItemIds, quoteId, quoteFileId, userId, data = {} }) => {
+ 
+  const updateData = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (LINE_ITEM_UPDATABLE_FIELDS.has(key)) updateData[key] = value ?? null;
+  }
+
+
+  const { count } = await prisma.profitabilty_line_items.updateMany({
+    where: { id: { in: lineItemIds }, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+    data: updateData,
+  });
+
+  const lineItems = count > 0
+    ? await prisma.profitabilty_line_items.findMany({
+      where: { id: { in: lineItemIds }, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+      select: PROF_SELECT,
+    })
+    : [];
+
+  return { count, lineItems };
+};
+
+const bulkDeleteProfitabilityLineItems = async ({ lineItemIds, quoteId, quoteFileId, userId }) => {
+
+  const { count } = await prisma.profitabilty_line_items.updateMany({
+    where: { id: { in: lineItemIds }, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+    data: { isDeleted: true },
+  });
+
+  return { count };
+};
+
+const deleteProfitabilityLineItem = async ({ itemId, quoteId, quoteFileId, userId }) => {
+  const { count } = await prisma.profitabilty_line_items.updateMany({
+    where: { id: itemId, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
+    data: { isDeleted: true },
+  });
+
+  if (count === 0) throw new ApiError(404, 'Profitability line item not found');
+  return { id: itemId };
 };
 
 module.exports = {
@@ -1018,4 +1074,10 @@ module.exports = {
   createLineItem,
   updateLineItem,
   deleteLineItem,
+  bulkDeleteLineItems,
+  bulkUpdateLineItems,
+  getProfitabilityLineItems,
+  bulkUpdateProfitabilityLineItems,
+  bulkDeleteProfitabilityLineItems,
+  deleteProfitabilityLineItem,
 };

@@ -53,6 +53,32 @@ router
   );
 
 router
+  .route('/:quoteId/files/:quoteFileId/profitability-items')
+  .get(validateQuoteIdParam, validateQuoteFileIdParam, quoteController.getProfitabilityLineItems);
+
+router
+  .route('/:quoteId/files/:quoteFileId/profitability-items/bulk')
+  .patch(validateQuoteIdParam, validateQuoteFileIdParam, quoteController.bulkUpdateProfitabilityLineItems)
+  .delete(validateQuoteIdParam, validateQuoteFileIdParam, quoteController.bulkDeleteProfitabilityLineItems);
+
+router
+  .route('/:quoteId/files/:quoteFileId/profitability-items/:itemId')
+  .delete(validateQuoteIdParam, validateQuoteFileIdParam, quoteController.deleteProfitabilityLineItem);
+
+router
+  .route('/:quoteId/files/:quoteFileId/line-items/bulk')
+  .patch(
+    validateQuoteIdParam,
+    validateQuoteFileIdParam,
+    quoteController.bulkUpdateLineItems
+  )
+  .delete(
+    validateQuoteIdParam,
+    validateQuoteFileIdParam,
+    quoteController.bulkDeleteLineItems
+  );
+
+router
   .route('/:quoteId/files/:quoteFileId/line-items/:lineItemId')
   .patch(
     validateQuoteIdParam,
