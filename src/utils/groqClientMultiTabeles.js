@@ -86,7 +86,7 @@ const extractWithGroq = async (pdfText) => {
     const messages = [
       {
         role: 'system',
-       content: `
+        content: `
 You are an AI PDF table extraction engine.
 
 Your task is to identify and extract ALL tabular data from the provided PDF text.
@@ -125,6 +125,9 @@ Rules:
 23. If no tables are found return:
 24. Column keys must be unique within a table.
 25. If duplicate column names exist, generate unique camelCase keys.
+26. CRITICAL — column count validation: the number of columns in a table MUST exactly equal the number of distinct values in each data row. If a header line and a data line both contain multiple space-separated words, do NOT assume header words map 1:1 to "natural" column boundaries. Instead, infer column boundaries by counting how many discrete values exist in the data rows, then split the header into that same number of segments.
+27. Example: header text "Part Description Qty Unit Amount" with a data row "SSD 1TB NVMe SSD 15 85 1275" has 4 numeric/short trailing values (15, 85, 1275 are 3 values, plus the leading text segment) — there are 4 columns total: a part identifier, a description, a quantity, a unit price, and an amount. Count tokens in EVERY data row for a table before finalizing how many columns that table has, and never produce a table where any row's value count doesn't match the column count.
+28. Do not silently fuse two header words into one column key unless every row in that table has a single combined value occupying that position.
 {
   "tables": []
 }
@@ -216,6 +219,59 @@ ${pdfText}
   }
 }
 
-module.exports = {
-  extractWithGroq,
-}
+const normalizeColumnDef = (col) => {
+  if (typeof col === 'string') {
+    const trimmed = col.trim();
+    return { title: trimmed, key: trimmed, dataType: 'string' };
+  }
+  const key = col?.key || col?.title || col?.name;
+  if (!key) return null;
+  return {
+    title: col.title || key,
+    key: String(key).trim(),
+    dataType: col.dataType || 'string',
+  };
+};
+
+const mergeExtractedTables = (tables = []) => {
+  if (!Array.isArray(tables) || tables.length === 0) {
+    return { title: 'Merged Table', columns: [], rows: [] };
+  }
+  if (tables.length === 1) return tables[0];
+
+  const columnsByIdentity = new Map();
+
+  for (const table of tables) {
+    for (const rawCol of table.columns || []) {
+      const col = normalizeColumnDef(rawCol);
+      if (!col) continue;
+      const identity = col.key.toLowerCase();
+      if (!columnsByIdentity.has(identity)) {
+        columnsByIdentity.set(identity, col);
+      }
+    }
+  }
+
+  const mergedColumns = Array.from(columnsByIdentity.values());
+
+  const mergedRows = [];
+  for (const table of tables) {
+    for (const row of table.rows || []) {
+      const mergedRow = {};
+      for (const col of mergedColumns) {
+        const matchKey = Object.keys(row).find((k) => k.toLowerCase() === col.key.toLowerCase());
+        mergedRow[col.key] = matchKey !== undefined ? row[matchKey] : null;
+      }
+      mergedRows.push(mergedRow);
+    }
+  }
+
+  return {
+    title: tables.map((t) => t.title).filter(Boolean).join(' + ') || 'Merged Table',
+    columns: mergedColumns,
+    rows: mergedRows,
+  };
+};
+
+module.exports = { extractWithGroq, mergeExtractedTables };
+

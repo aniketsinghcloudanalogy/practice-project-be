@@ -1,0 +1,143 @@
+const DUMMY_QUOTE_SEED = {
+  quotes: [
+    {
+      name: 'Dummy Office Supplies Quote',
+      pdfUrl: 'dummy://quote/office-supplies',
+      files: [
+        {
+          fileName: 'office-supplies-1.pdf',
+          tableTitle: 'Office Supplies Table',
+          columns: [
+            { key: 'lineNumber', label: 'Line Number' },
+            { key: 'description', label: 'Description' },
+            { key: 'quantity', label: 'Quantity' },
+            { key: 'unitPrice', label: 'Unit Price' },
+            { key: 'amount', label: 'Amount' },
+            { key: 'currency', label: 'Currency' },
+            { key: 'department', label: 'Department' },
+          ],
+          
+          lineItems: [
+            {
+              lineNumber: '1',
+              description: 'A4 Papers (500 sheets)',
+              quantity: '10',
+              unitPrice: '6',
+              amount: '60',
+              currency: 'USD',
+              department: 'Operations',
+              status: 'PENDING',
+            },
+            {
+              lineNumber: '2',
+              description: 'Blue Pens Box',
+              quantity: '5',
+              unitPrice: '12',
+              amount: '60',
+              currency: 'USD',
+              department: 'Sales',
+              status: 'PENDING',
+            },
+            {
+              lineNumber: '3',
+              description: 'Desk Organizer',
+              quantity: '8',
+              unitPrice: '9',
+              amount: '72',
+              currency: 'USD',
+              department: 'Admin',
+              status: 'PENDING',
+            },
+          ],
+        },
+        {
+          fileName: 'office-supplies-2.pdf',
+          tableTitle: 'Furniture Table',
+          columns: [
+            { key: 'lineNumber', label: 'Line Number' },
+            { key: 'description', label: 'Description' },
+            { key: 'quantity', label: 'Quantity' },
+            { key: 'unitPrice', label: 'Unit Price' },
+            { key: 'amount', label: 'Amount' },
+          ],
+          lineItems: [
+            {
+              lineNumber: '1',
+              description: 'Visitor Chair',
+              quantity: '12',
+              unitPrice: '45',
+              amount: '540',
+              currency: 'USD',
+              department: 'Admin',
+              status: 'PENDING',
+            },
+            {
+              lineNumber: '2',
+              description: 'Meeting Table',
+              quantity: '2',
+              unitPrice: '240',
+              amount: '480',
+              currency: 'USD',
+              department: 'Admin',
+              status: 'PENDING',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'Dummy IT Equipment Quote',
+      pdfUrl: 'dummy://quote/it-equipment',
+      files: [
+        {
+          fileName: 'it-equipment-1.pdf',
+          tableTitle: 'IT Equipment Table',
+          columns: [
+            { key: 'lineNumber', label: 'Line Number' },
+            { key: 'description', label: 'Description' },
+            { key: 'quantity', label: 'Quantity' },
+            { key: 'unitPrice', label: 'Unit Price' },
+            { key: 'amount', label: 'Amount' },
+            { key: 'department', label: 'Department' },
+          ],
+          lineItems: [
+            {
+              lineNumber: '1',
+              description: 'Laptop 16GB/512GB',
+              quantity: '4',
+              unitPrice: '850',
+              amount: '3400',
+              currency: 'USD',
+              department: 'Engineering',
+              status: 'PENDING',
+            },
+            {
+              lineNumber: '2',
+              description: '24 inch Monitor',
+              quantity: '6',
+              unitPrice: '170',
+              amount: '1020',
+              currency: 'USD',
+              department: 'Engineering',
+              status: 'PENDING',
+            },
+            {
+              lineNumber: '3',
+              description: 'Wireless Keyboard',
+              quantity: '6',
+              unitPrice: '30',
+              amount: '180',
+              currency: 'USD',
+              department: 'Engineering',
+              status: 'PENDING',
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+module.exports = {
+  DUMMY_QUOTE_SEED,
+};

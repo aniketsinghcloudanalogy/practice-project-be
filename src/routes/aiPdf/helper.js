@@ -28,10 +28,10 @@ const buildLineItemRecords = ({ rows, mapping, userId, tableId, tableTitle }) =>
   return rows.map((row, rowIndex) => {  // for each row, build a line item based on the mapping
     const lineItem = {                     // base fields for every line item
       userId,
-      pdfTableId:      tableId,
+      pdfTableId: tableId,
       sourceTableTitle: tableTitle || null,
-      rowSourceId:     row.id || null,
-      rowIndex:        row.rowIndex ?? rowIndex,
+      rowSourceId: row.id || null,
+      rowIndex: row.rowIndex ?? rowIndex,
     };
     for (const [sourceColumn, targetField] of mappingEntries) {
       const value = row.rowData?.[sourceColumn];
@@ -52,13 +52,13 @@ const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
   if (tables.length === 0) throw new ApiError(422, 'No tables found in PDF');//validate table exist
 
   return prisma.$transaction(async (tx) => {
-    const pdfUpload = await tx.pdfUpload.create({  // create upload record
+    const pdfUpload = await tx.pdfUpload.create({ 
       data: { userId, fileName },
       select: { id: true },
     });
 
     const results = await Promise.all(
-      tables.map(async (table) => {  //loop through tables, create table record + rows for each
+      tables.map(async (table) => { 
         const pdfTable = await tx.pdfTable.create({
           data: {
             pdfUploadId: pdfUpload.id, userId,
@@ -82,7 +82,7 @@ const processUploadedPdf = async ({ userId, fileName, extractedData }) => {
     );
 
     return { uploadId: pdfUpload.id, tableCount: tables.length, tables: results };
-  });
+  }, { timeout: 30000 });
 };
 
 // ─── getUserUploads  ───────────────────────────────────────────────
@@ -122,7 +122,7 @@ const getUploadWithTables = async (uploadId, userId) =>
 // ─── syncUploadTables — OPTIMIZED ────────────────────────────────────────────
 //  batch all reads up-front, then process tables with minimal queries
 
-const syncUploadTables = async ({ uploadId, userId, tables }) => {
+const syncUploadTables = async ({ uploadId, userId, tables, quoteId = null, quoteFileId = null }) => {
 
   return prisma.$transaction(async (tx) => {
 
@@ -144,7 +144,7 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
     const tableIdsToDelete = [...existingTableIds].filter(id => !incomingTableIds.has(id));  // tables that exist in DB but not in incoming data should be deleted
     const activeExistingTableIds = [...existingTableIds].filter(id => incomingTableIds.has(id));    // tables that exist in both DB and incoming data are "active" — we need to read their rows for further processing
 
-   
+
     const existingRowsByTableId = new Map();
 
     if (activeExistingTableIds.length > 0) {
@@ -173,20 +173,24 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
           where: { pdfTableId: { in: tableIdsToDelete }, userId, isDeleted: false },
           data: { isDeleted: true },
         }),
+        tx.profitabilty_line_items.updateMany({
+          where: { pdfTableId: { in: tableIdsToDelete }, userId, isDeleted: false },
+          data: { isDeleted: true },
+        }),
       ]);
     }
 
 
     const allRowsToCreate = [];
-    const tableLineItems  = [];
+    const tableLineItems = [];
     const changedTableIds = new Set();
     const existingTableOps = [];
     const newTableOps = [];
 
-  
+
     for (const incomingTable of tables) {
-      const tableColumns    = Array.isArray(incomingTable.columns) ? incomingTable.columns : [];
-      const tableRows       = Array.isArray(incomingTable.rows)    ? incomingTable.rows    : [];
+      const tableColumns = Array.isArray(incomingTable.columns) ? incomingTable.columns : [];
+      const tableRows = Array.isArray(incomingTable.rows) ? incomingTable.rows : [];
       const lineItemMapping = incomingTable.lineItemMapping ?? {};
 
       const tableId = incomingTable.id;
@@ -302,20 +306,180 @@ const syncUploadTables = async ({ uploadId, userId, tables }) => {
 
     // ── Batch wipe + recreate line items ──────────────────────────────────────
     const changedTableIdList = [...changedTableIds];
-    if (changedTableIdList.length > 0) {
-      await tx.lineItem.updateMany({
-        where: { pdfTableId: { in: changedTableIdList }, userId, isDeleted: false },
-        data: { isDeleted: true },
-      });
-    }
 
-    const allLineItems = tableLineItems.flatMap(t => t.items);
-    if (allLineItems.length > 0) {
-      await tx.lineItem.createMany({ data: allLineItems });
+    if (changedTableIdList.length > 0) {
+      // ── Read existing LineItem quote context BEFORE wiping ──────────────────
+      // LineItems created by processSingleFile carry quote_id + quote_file_id.
+      // We must re-attach those after recreating, otherwise verifyQuoteFileById
+      // can't find them by quote_file_id.
+      const existingQuoteContext = await tx.lineItem.findMany({
+        where: {
+          pdfTableId: { in: changedTableIdList },
+          userId,
+          isDeleted: false,
+          quote_id: { not: null },
+        },
+        select: {
+          pdfTableId: true,
+          quote_id: true,
+          quote_file_id: true,
+        },
+        distinct: ['pdfTableId', 'quote_id', 'quote_file_id'],
+      });
+
+      // Build map: pdfTableId -> [{ quote_id, quote_file_id }]
+      const quoteContextByTableId = existingQuoteContext.reduce((acc, row) => {
+        (acc[row.pdfTableId] ??= []).push({
+          quote_id: row.quote_id,
+          quote_file_id: row.quote_file_id,
+        });
+        return acc;
+      }, {});
+
+      // Wipe old line items and profitability items for changed tables
+      await Promise.all([
+        tx.lineItem.updateMany({
+          where: { pdfTableId: { in: changedTableIdList }, userId, isDeleted: false },
+          data: { isDeleted: true },
+        }),
+        tx.profitabilty_line_items.updateMany({
+          where: {
+            pdfTableId: { in: changedTableIdList },
+            userId,
+            isDeleted: false,
+          },
+          data: { isDeleted: true },
+        }),
+      ]);
+
+      // Recreate LineItems — one set per quote context per table
+      const allLineItemsToCreate = [];
+
+      for (const { tableId, items } of tableLineItems) {
+        const quoteContexts = quoteContextByTableId[tableId] ?? [];
+
+        if (quoteContexts.length === 0) {
+          if (quoteId && quoteFileId) {
+            // Manual mode from quote — attach provided quote context
+            for (const item of items) {
+              allLineItemsToCreate.push({ ...item, quote_id: quoteId, quote_file_id: quoteFileId });
+            }
+          } else {
+            // No quote context — plain aiPdf LineItems
+            allLineItemsToCreate.push(...items);
+          }
+        } else {
+          // Re-attach each quote context
+          for (const { quote_id, quote_file_id } of quoteContexts) {
+            for (const item of items) {
+              allLineItemsToCreate.push({
+                ...item,
+                quote_id,
+                quote_file_id,
+              });
+            }
+          }
+        }
+      }
+
+      if (allLineItemsToCreate.length > 0) {
+        await tx.lineItem.createMany({ data: allLineItemsToCreate });
+      }
+
+      // Keep quote verification state/profitability rows in sync for quote-linked tables.
+      const quoteContextsToVerify = existingQuoteContext
+        .filter((row) => Boolean(row.quote_id) && Boolean(row.quote_file_id))
+        .reduce((acc, row) => {
+          const key = `${row.quote_id}:${row.quote_file_id}`;
+          if (!acc.map.has(key)) {
+            acc.map.set(key, {
+              quote_id: row.quote_id,
+              quote_file_id: row.quote_file_id,
+            });
+            acc.list.push({
+              quote_id: row.quote_id,
+              quote_file_id: row.quote_file_id,
+            });
+          }
+          return acc;
+        }, { map: new Map(), list: [] }).list;
+
+      if (quoteContextsToVerify.length > 0) {
+        const quoteFileIdsToVerify = quoteContextsToVerify.map((ctx) => ctx.quote_file_id);
+
+        await tx.quoteFile.updateMany({
+          where: {
+            id: { in: quoteFileIdsToVerify },
+            quote: { userId, is_deleted: false },
+            is_deleted: false,
+          },
+          data: { is_Verifed: true },
+        });
+
+        for (const context of quoteContextsToVerify) {
+          const itemsForProfitability = await tx.lineItem.findMany({
+            where: {
+              userId,
+              quote_id: context.quote_id,
+              quote_file_id: context.quote_file_id,
+              pdfTableId: { in: changedTableIdList },
+              isDeleted: false,
+            },
+            select: {
+              pdfTableId: true,
+              sourceTableTitle: true,
+              rowSourceId: true,
+              rowIndex: true,
+              lineNumber: true,
+              itemCode: true,
+              employeeId: true,
+              employeeName: true,
+              description: true,
+              department: true,
+              category: true,
+              email: true,
+              phone: true,
+              salary: true,
+              quantity: true,
+              unitPrice: true,
+              amount: true,
+              currency: true,
+              status: true,
+              referenceNo: true,
+              location: true,
+              notes: true,
+              extraFields: true,
+            },
+          });
+
+          if (itemsForProfitability.length > 0) {
+            await tx.profitabilty_line_items.createMany({
+              data: itemsForProfitability.map((item) => ({
+                ...item,
+                userId,
+                quote_id: context.quote_id,
+                quote_file_id: context.quote_file_id,
+                is_Verifed: true,
+              })),
+            });
+          }
+
+          await tx.profitabilty_line_items.updateMany({
+            where: {
+              userId,
+              quote_id: context.quote_id,
+              quote_file_id: context.quote_file_id,
+              isDeleted: false,
+              is_Verifed: false,
+            },
+            data: { is_Verifed: true },
+          });
+        }
+      }
     }
 
     return { uploadId };
-  });
+  }, { timeout: 30000 });
 };
 
 // ─── softDeleteUploadById — OPTIMIZED ────────────────────────────────────────
@@ -352,11 +516,15 @@ const softDeleteUploadById = async (uploadId, userId) => {
           where: { pdfTableId: { in: tableIds }, userId },
           data: { isDeleted: true },
         }),
+        tx.profitabilty_line_items.updateMany({
+          where: { pdfTableId: { in: tableIds }, userId, isDeleted: false },
+          data: { isDeleted: true },
+        }),
       ] : []),
     ]);
 
     return { uploadId, deletedTables: tableIds.length };
-  });
+  }, { timeout: 30000 });
 };
 
 module.exports = {
@@ -367,4 +535,5 @@ module.exports = {
   getUploadWithTables,
   syncUploadTables,
   softDeleteUploadById,
+  buildLineItemRecords,
 };

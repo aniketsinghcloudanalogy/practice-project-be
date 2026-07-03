@@ -67,6 +67,8 @@ const syncTableSchema = z
 const syncUploadSchema = z
   .object({
     tables: z.array(syncTableSchema),
+    quoteId: z.string().trim().optional(),
+    quoteFileId: z.string().trim().optional(),
   })
   .strict();
 

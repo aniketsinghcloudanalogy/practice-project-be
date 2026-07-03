@@ -104,12 +104,14 @@ const syncUpload = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { uploadId } = req.params;
-    const { tables } = req.body;
+    const { tables, quoteId, quoteFileId } = req.body;
 
     const result = await syncUploadTables({
       uploadId,
       userId,
       tables,
+      quoteId: quoteId || null,
+      quoteFileId: quoteFileId || null,
     });
 
     return res
@@ -136,7 +138,6 @@ const deleteUpload = async (req, res, next) => {
   }
 };
 
-
 module.exports = {
   extract,
   getUploads,
@@ -144,4 +145,3 @@ module.exports = {
   syncUpload,
   deleteUpload,
 };
-
