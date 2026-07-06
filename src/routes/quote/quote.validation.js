@@ -40,6 +40,8 @@ const uploadQuotePdfs = (req, res, next) => {
 
 const createQuoteSchema = z.object({
   name: z.string().trim().min(1, 'name is required').max(255, 'name must be at most 255 characters'),
+  customerId: z.string().trim().optional(),
+  opportunityId: z.string().trim().optional(),
 });
 
 const validateCreateQuote = (req, res, next) => {

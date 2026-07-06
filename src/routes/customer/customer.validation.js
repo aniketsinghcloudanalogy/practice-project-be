@@ -16,9 +16,8 @@ const customerSchema = z.object({
     .nullable(),
 
   website: z
-    .string()
+    .string('Invalid website URL')
     .trim()
-    .url('Invalid website URL')
     .optional()
     .nullable(),
 

@@ -27,33 +27,33 @@ const QUOTE_FILE_SELECT = {
   created_at: true,
 };
 
-const PROF_SELECT = {
-  id: true,
-  lineNumber: true,
-  itemCode: true,
-  employeeId: true,
-  employeeName: true,
-  description: true,
-  department: true,
-  category: true,
-  email: true,
-  phone: true,
-  salary: true,
-  quantity: true,
-  unitPrice: true,
-  amount: true,
-  currency: true,
-  status: true,
-  referenceNo: true,
-  location: true,
-  notes: true,
-  extraFields: true,
-  pdfTableId: true,
-  sourceTableTitle: true,
-  rowIndex: true,
-  createdAt: true,
-  updatedAt: true,
-};
+const PROFITABILITY_SELECT_FIELDS = [
+  'id', 'userId', 'quote_id', 'quote_file_id', 'pdfTableId', 'sourceTableTitle',
+  'rowSourceId', 'rowIndex', 'lineNumber', 'itemCode', 'employeeId', 'employeeName',
+  'description', 'department', 'category', 'email', 'phone', 'salary', 'quantity',
+  'unitPrice', 'amount', 'currency', 'status', 'referenceNo', 'location', 'notes',
+  'extraFields', 'isDeleted', 'is_Verifed', 'customer_id', 'organization', 'product_id',
+  'bundle_id', 'adjusted_quantity', 'availability', 'line_amount', 'list_price',
+  'adjusted_price', 'serial_', 'pdf_url', 'eventId', 'quote_config_id', 'subscriptionId',
+  'portalId', 'occurredAt', 'subscriptionType', 'attemptNumber', 'objectId', 'changeSource',
+  'changeFlag', 'appId', 'bundle_cost', 'bundle_ext_price', 'bundle_gp',
+  'bundle_gp_percentage', 'bundle_msrp', 'bundle_name', 'bundle_rebate',
+  'bundle_rebate_amount', 'bundle_unit_price', 'clin', 'contract_fee_percentage',
+  'contract_fee_amount', 'country_of_origin', 'display_mpn', 'end_date', 'energy_star_flag',
+  'eol_date', 'epeat_flag', 'equivalent_clin', 'excel_bundle_name', 'file_name',
+  'gsa_price', 'model_id', 'mpn', 'ndr_cost', 'unit_price', 'oem', 'oem_name',
+  'partner_fee_percentage', 'partner_fee_amount', 'serial_number', 'service_duration',
+  'ss_part', 'start_date', 'subscription_term', 'taa_flag', 'td_number', 'unspsc',
+  'vendor_line_number', 'vendor_quote_line_item', 'vendor_disti', 'vendor_disti_name',
+  'months', 'sub_total', 'total_cost', 'product_name', 'use_line_amount', 'term_months',
+  'term_years', 'term_unit_calc', 'total_cost_to_use', 'lead_time', 'Discount_Class__c',
+  'Discount_Subclass__c', 'vendor_quote_number', 'manufacturer_product_code',
+  'vendor_product_code', 'sku', 'distributor_product_code', 'discount_percentage',
+  'extended_list', 'esi_price', 'pricing_method', 'item_category_code', 'ma_flag',
+  'gross_profit_percentage', 'gross_profit', 'msrp', 'optional', 'createdAt', 'updatedAt',
+];
+
+const PROF_SELECT = Object.fromEntries(PROFITABILITY_SELECT_FIELDS.map((field) => [field, true]));
 
 
 
@@ -134,6 +134,72 @@ const LINE_ITEM_UPDATABLE_FIELDS = new Set([
   'department', 'category', 'email', 'phone', 'salary', 'quantity',
   'unitPrice', 'amount', 'currency', 'status', 'referenceNo', 'location', 'notes',
 ]);
+
+const PROFITABILITY_PROTECTED_FIELDS = new Set([
+  'id', 'userId', 'quote_id', 'quote_file_id', 'pdfTableId', 'isDeleted', 'createdAt', 'updatedAt',
+]);
+
+const PROFITABILITY_FIELD_TYPES = {
+  rowIndex: 'int',
+  product_id: 'int',
+  bundle_id: 'int',
+  eventId: 'int',
+  quote_config_id: 'int',
+  appId: 'int',
+  subscriptionId: 'float',
+  portalId: 'float',
+  occurredAt: 'float',
+  attemptNumber: 'float',
+  objectId: 'float',
+  gross_profit_percentage: 'float',
+  gross_profit: 'float',
+  is_Verifed: 'boolean',
+  use_line_amount: 'boolean',
+  optional: 'boolean',
+  extraFields: 'json',
+};
+
+const PROFITABILITY_UPDATABLE_FIELDS = new Set(
+  PROFITABILITY_SELECT_FIELDS.filter((field) => !PROFITABILITY_PROTECTED_FIELDS.has(field))
+);
+
+const parseProfitabilityFieldValue = (field, value) => {
+  if (value === null || value === undefined) return null;
+
+  const type = PROFITABILITY_FIELD_TYPES[field] || 'string';
+  if (type === 'string') return String(value);
+
+  if (type === 'int') {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed)) throw new ApiError(400, `${field} must be an integer`);
+    return parsed;
+  }
+
+  if (type === 'float') {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) throw new ApiError(400, `${field} must be a number`);
+    return parsed;
+  }
+
+  if (type === 'boolean') {
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value).trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+    throw new ApiError(400, `${field} must be true or false`);
+  }
+
+  if (type === 'json') {
+    if (typeof value === 'object') return value;
+    try {
+      return JSON.parse(String(value));
+    } catch (_error) {
+      throw new ApiError(400, `${field} must be valid JSON`);
+    }
+  }
+
+  return value;
+};
 
 
 const removeLocalFile = (filePath) => {
@@ -251,7 +317,7 @@ const buildLineItemRecordsWithFallback = ({ rows, columns, mapping, userId, tabl
   });
 };
 
-const createQuoteForUser = async (userId, name, pdfUrl = null) => {
+const createQuoteForUser = async (userId, name, pdfUrl = null, customerId, opportunityId) => {
   return prisma.$transaction(async (tx) => {
     const { _max } = await tx.quote.aggregate({
       where: { userId },
@@ -259,7 +325,14 @@ const createQuoteForUser = async (userId, name, pdfUrl = null) => {
     });
 
     return tx.quote.create({
-      data: { userId, name, pdf_url: pdfUrl, quote_number: (_max.quote_number ?? 0) + 1 },
+      data: {
+        userId,
+        name,
+        pdf_url: pdfUrl,
+        quote_number: (_max.quote_number ?? 0) + 1,
+        ...(customerId ? { customer_id: customerId } : {}),
+        ...(opportunityId ? { opportunity_id: opportunityId } : {}),
+      },
       select: QUOTE_SELECT,
     });
   });
@@ -392,8 +465,8 @@ const processSingleFile = async ({ file, userId, quoteId }) => {
 };
 
 
-const createQuoteWithUploads = async ({ userId, name, files }) => {
-  const quote = await createQuoteForUser(userId, name, files[0]?.path ?? null);
+const createQuoteWithUploads = async ({ userId, name, files, customerId, opportunityId }) => {
+  const quote = await createQuoteForUser(userId, name, files[0]?.path ?? null, customerId, opportunityId);
 
   try {
     const results = await Promise.all(
@@ -500,6 +573,8 @@ const getQuotesByUserId = async (userId) => {
       id: true, quote_number: true, name: true, pdf_url: true,
       status: true, created_at: true,
       _count: { select: { quote_files: { where: { is_deleted: false } } } },
+      customer: { select: { id: true, name: true } },
+      opportunity: { select: { id: true, title: true } },
     },
   });
 
@@ -526,6 +601,8 @@ const getQuotesByUserId = async (userId) => {
     fileCount: quote._count.quote_files,
     lineItemCount: lineItemCountByQuoteId[quote.id] ?? 0,
     createdAt: quote.created_at,
+    customerName: quote.customer?.name ?? null,
+    opportunityTitle: quote.opportunity?.title ?? null,
   }));
 };
 
@@ -664,7 +741,9 @@ const getQuoteTablesByQuoteId = async (quoteId) =>
     },
   });
 
-const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
+
+
+  const verifyQuoteFileById = async ({ quoteId, quoteFileId, userId }) => {
   const quoteFile = await prisma.quoteFile.findFirst({
     where: {
       id: quoteFileId,
@@ -800,6 +879,8 @@ const assertQuoteFileAccess = async (quoteFileId, quoteId, userId) => {
   if (!quoteFile) throw new ApiError(404, 'Quote file not found');
   return quoteFile;
 };
+
+
 const createLineItem = async ({ quoteId, quoteFileId, userId, data = {} }) => {
   const quoteFile = await assertQuoteFileAccess(quoteFileId, quoteId, userId);
 
@@ -1021,12 +1102,18 @@ const getProfitabilityLineItems = async ({ quoteId, quoteFileId, userId }) => {
 };
 
 const bulkUpdateProfitabilityLineItems = async ({ lineItemIds, quoteId, quoteFileId, userId, data = {} }) => {
- 
-  const updateData = {};
-  for (const [key, value] of Object.entries(data)) {
-    if (LINE_ITEM_UPDATABLE_FIELDS.has(key)) updateData[key] = value ?? null;
+  if (!Array.isArray(lineItemIds) || lineItemIds.length === 0) {
+    throw new ApiError(400, 'lineItemIds must be a non-empty array');
   }
 
+  const updateData = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (PROFITABILITY_UPDATABLE_FIELDS.has(key)) {
+      updateData[key] = parseProfitabilityFieldValue(key, value);
+    }
+  }
+
+  if (Object.keys(updateData).length === 0) throw new ApiError(400, 'No valid fields to update');
 
   const { count } = await prisma.profitabilty_line_items.updateMany({
     where: { id: { in: lineItemIds }, userId, quote_id: quoteId, quote_file_id: quoteFileId, isDeleted: false },
@@ -1039,7 +1126,7 @@ const bulkUpdateProfitabilityLineItems = async ({ lineItemIds, quoteId, quoteFil
       select: PROF_SELECT,
     })
     : [];
-
+ 
   return { count, lineItems };
 };
 
