@@ -7,6 +7,8 @@ const createQuote = asyncHandler(async (req, res) => {
     userId: req.user.id,
     name: req.body.name,
     files: req.quoteFiles ?? [],
+    customerId: req.body.customerId || undefined,
+    opportunityId: req.body.opportunityId || undefined,
   });
 
   return res.status(201).json(
