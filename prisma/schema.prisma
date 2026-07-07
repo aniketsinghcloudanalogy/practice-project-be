@@ -40,6 +40,7 @@ model User {
   customers       Customer[]
   opportunities   Opportunity[]
   addresses       Address[]
+  savedLocations  SavedLocation[]
 
   @@unique([authProvider, providerAccountId])
   @@index([organizationId])
@@ -753,6 +754,21 @@ model Address {
   @@index([userId])
   @@index([customerId])
   @@index([userId, type])
+}
+
+model SavedLocation {
+  id         String   @id @default(cuid())
+  userId     String
+  label      String?
+  latitude   Float
+  longitude  Float
+  shareToken String   @unique @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([shareToken])
 }
 
 enum AddressType {
