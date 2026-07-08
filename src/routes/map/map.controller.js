@@ -44,9 +44,14 @@ const getSharedWithMe = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, 'Shared locations fetched', shared));
 });
 
+const getSharedByMe = asyncHandler(async (req, res) => {
+  const shared = await locationModel.getSharedByMe(req.user.id);
+  return res.status(200).json(new ApiResponse(200, 'Shared by me fetched', shared));
+});
+
 const getUsersForSharing = asyncHandler(async (req, res) => {
   const users = await locationModel.getUsersForSharing(req.user.id);
   return res.status(200).json(new ApiResponse(200, 'Users fetched', users));
 });
 
-module.exports = { saveLocation, getLocations, getLocation, getSharedLocation, deleteLocation, shareLocation, getSharedWithMe, getUsersForSharing };
+module.exports = { saveLocation, getLocations, getLocation, getSharedLocation, deleteLocation, shareLocation, getSharedWithMe, getSharedByMe, getUsersForSharing };

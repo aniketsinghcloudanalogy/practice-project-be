@@ -11,6 +11,7 @@ router.use(protect);
 router.route('/').post(validateSaveLocation, mapController.saveLocation).get(mapController.getLocations);
 router.post('/share', mapController.shareLocation);
 router.get('/shared-with-me', mapController.getSharedWithMe);
+router.get('/shared-by-me', mapController.getSharedByMe);
 router.get('/users-for-sharing', mapController.getUsersForSharing);
 
 router

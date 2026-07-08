@@ -65,4 +65,16 @@ const getSharedWithMe = (userId) =>
     },
   });
 
-module.exports = { saveLocation, getLocations, getLocationById, getLocationByShareToken, deleteLocation, getUsersForSharing, shareLocationWithUser, getSharedWithMe };
+const getSharedByMe = (userId) =>
+  prisma.sharedLocation.findMany({
+    where: { sharedById: userId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      createdAt: true,
+      sharedTo: { select: { id: true, name: true, email: true } },
+      location: { select: LOCATION_SELECT },
+    },
+  });
+
+module.exports = { saveLocation, getLocations, getLocationById, getLocationByShareToken, deleteLocation, getUsersForSharing, shareLocationWithUser, getSharedWithMe, getSharedByMe };
