@@ -31,4 +31,22 @@ const deleteLocation = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, 'Location deleted successfully', null));
 });
 
-module.exports = { saveLocation, getLocations, getLocation, getSharedLocation, deleteLocation };
+const shareLocation = asyncHandler(async (req, res) => {
+  const { locationId, sharedToId } = req.body;
+  if (!locationId || !sharedToId) throw new ApiError(400, 'locationId and sharedToId are required');
+  if (sharedToId === req.user.id) throw new ApiError(400, 'Cannot share with yourself');
+  const shared = await locationModel.shareLocationWithUser(locationId, req.user.id, sharedToId);
+  return res.status(201).json(new ApiResponse(201, 'Location shared successfully', shared));
+});
+
+const getSharedWithMe = asyncHandler(async (req, res) => {
+  const shared = await locationModel.getSharedWithMe(req.user.id);
+  return res.status(200).json(new ApiResponse(200, 'Shared locations fetched', shared));
+});
+
+const getUsersForSharing = asyncHandler(async (req, res) => {
+  const users = await locationModel.getUsersForSharing(req.user.id);
+  return res.status(200).json(new ApiResponse(200, 'Users fetched', users));
+});
+
+module.exports = { saveLocation, getLocations, getLocation, getSharedLocation, deleteLocation, shareLocation, getSharedWithMe, getUsersForSharing };

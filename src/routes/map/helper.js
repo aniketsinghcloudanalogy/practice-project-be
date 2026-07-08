@@ -39,4 +39,30 @@ const getLocationByShareToken = (shareToken) =>
 const deleteLocation = (id, userId) =>
   prisma.savedLocation.deleteMany({ where: { id, userId } });
 
-module.exports = { saveLocation, getLocations, getLocationById, getLocationByShareToken, deleteLocation };
+const getUsersForSharing = (currentUserId) =>
+  prisma.user.findMany({
+    where: { isActive: true, id: { not: currentUserId } },
+    select: { id: true, name: true, email: true },
+    orderBy: { name: 'asc' },
+  });
+
+const shareLocationWithUser = (locationId, sharedById, sharedToId) =>
+  prisma.sharedLocation.upsert({
+    where: { locationId_sharedToId: { locationId, sharedToId } },
+    update: {},
+    create: { locationId, sharedById, sharedToId },
+  });
+
+const getSharedWithMe = (userId) =>
+  prisma.sharedLocation.findMany({
+    where: { sharedToId: userId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      createdAt: true,
+      sharedBy: { select: { id: true, name: true, email: true } },
+      location: { select: LOCATION_SELECT },
+    },
+  });
+
+module.exports = { saveLocation, getLocations, getLocationById, getLocationByShareToken, deleteLocation, getUsersForSharing, shareLocationWithUser, getSharedWithMe };

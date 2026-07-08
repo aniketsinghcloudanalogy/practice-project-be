@@ -40,7 +40,9 @@ model User {
   customers       Customer[]
   opportunities   Opportunity[]
   addresses       Address[]
-  savedLocations  SavedLocation[]
+  savedLocations     SavedLocation[]
+  sharedByMe         SharedLocation[] @relation("SharedByUser")
+  sharedWithMe       SharedLocation[] @relation("SharedToUser")
 
   // ==========================
   // Meeting Scheduler
@@ -775,9 +777,25 @@ model SavedLocation {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sharedWith SharedLocation[]
 
   @@index([userId])
   @@index([shareToken])
+}
+
+model SharedLocation {
+  id         String        @id @default(cuid())
+  locationId String
+  sharedById String
+  sharedToId String
+  createdAt  DateTime      @default(now())
+  location   SavedLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  sharedBy   User          @relation("SharedByUser", fields: [sharedById], references: [id], onDelete: Cascade)
+  sharedTo   User          @relation("SharedToUser", fields: [sharedToId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, sharedToId])
+  @@index([sharedById])
+  @@index([sharedToId])
 }
 
 model Meeting {
