@@ -2,6 +2,8 @@ require('dotenv').config();
 
 const app = require('./app');
 const config = require('./config');
+const { startReminderCron } = require("./jobs/reminder.job");
+const { initSocket } = require("./config/socket");
 
 const PORT = config.port || process.env.PORT || 4000;
 
@@ -20,7 +22,10 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  startReminderCron();
+  initSocket(server);
 });
+
 
 // Handle server-level errors (e.g., port already in use)
 server.on('error', (err) => {

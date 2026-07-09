@@ -22,4 +22,9 @@ router.get('/list', protect, authorize('ADMIN', 'SUPER_ADMIN'), userController.l
 // Toggle any user active/inactive (ADMIN + SUPER_ADMIN)
 router.patch('/:userId/active', protect, authorize('ADMIN', 'SUPER_ADMIN'), userController.toggleUserActive);
 
+// Lightweight directory (id/name/email only) for any authenticated user —
+// used to populate organizer/participant pickers in the scheduler, etc.
+router.get('/directory', protect, userController.listUserDirectory);
+
+
 module.exports = router;

@@ -258,6 +258,18 @@ const findAllUsers = (includeSuperAdmin = false) => {
   });
 };
 
+const findActiveUsersDirectory = () => {
+  return prisma.user.findMany({
+    where: { isActive: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+    orderBy: { name: 'asc' },
+  });
+};
+
 module.exports = {
   USER_SELECT,
   SUPER_ADMIN_EMAIL_DOMAIN,
@@ -278,4 +290,5 @@ module.exports = {
   updateUserActiveStatus,
   findAdminsByRole,
   findAllUsers,
+  findActiveUsersDirectory
 };
