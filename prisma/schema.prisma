@@ -40,6 +40,15 @@ model User {
   customers       Customer[]
   opportunities   Opportunity[]
   addresses       Address[]
+  savedLocations  SavedLocation[]
+
+  // ==========================
+  // Meeting Scheduler
+  // ==========================
+
+  organizedMeetings   Meeting[]            @relation("MeetingOrganizer")
+  meetingParticipants MeetingParticipant[]
+  notifications       Notification[]
 
   @@unique([authProvider, providerAccountId])
   @@index([organizationId])
@@ -47,13 +56,14 @@ model User {
 }
 
 model Organization {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String
-  domain    String   @unique
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  domain    String    @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   users     User[]
+  meetings  Meeting[]
 
   @@index([name])
 }
@@ -287,15 +297,15 @@ model FormSubmission {
 }
 
 model Quote {
-  id                      String                    @id @default(cuid())
-  quote_number            Int
-  name                    String
-  pdf_url                 String?
-  status                  QuoteStatus               @default(DRAFT)
-  is_deleted              Boolean                   @default(false)
-  userId                  String
-  customer_id             String?
-  opportunity_id          String?
+  id             String      @id @default(cuid())
+  quote_number   Int
+  name           String
+  pdf_url        String?
+  status         QuoteStatus @default(DRAFT)
+  is_deleted     Boolean     @default(false)
+  userId         String
+  customer_id    String?
+  opportunity_id String?
 
   user                    User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   customer                Customer?                 @relation(fields: [customer_id], references: [id], onDelete: SetNull)
@@ -334,7 +344,7 @@ model QuoteFile {
 }
 
 model LineItem {
-  id               String     @id @default(cuid())
+  id               String  @id @default(cuid())
   userId           String
   quote_id         String?
   quote_file_id    String?
@@ -361,100 +371,100 @@ model LineItem {
   location         String?
   notes            String?
   extraFields      Json?
-  isDeleted        Boolean    @default(false)
+  isDeleted        Boolean @default(false)
 
   // Extended fields
-  customer_id             String?
-  organization            String?
-  product_id              Int?
-  bundle_id               Int?
-  adjusted_quantity       String?
-  availability            String?
-  line_amount             String?
-  list_price              String?
-  adjusted_price          String?
-  serial_                 String?
-  pdf_url                 String?
-  eventId                 Int?
-  quote_config_id         Int?
-  subscriptionId          Float?
-  portalId                Float?
-  occurredAt              Float?
-  subscriptionType        String?
-  attemptNumber           Float?
-  objectId                Float?
-  changeSource            String?
-  changeFlag              String?
-  appId                   Int?
-  bundle_cost             String?
-  bundle_ext_price        String?
-  bundle_gp               String?
-  bundle_gp_percentage    String?
-  bundle_msrp             String?
-  bundle_name             String?
-  bundle_rebate           String?
-  bundle_rebate_amount    String?
-  bundle_unit_price       String?
-  clin                    String?
-  contract_fee_percentage String?
-  contract_fee_amount     String?
-  country_of_origin       String?
-  display_mpn             String?
-  end_date                String?
-  energy_star_flag        String?
-  eol_date                String?
-  epeat_flag              String?
-  equivalent_clin         String?
-  excel_bundle_name       String?
-  file_name               String?
-  gsa_price               String?
-  model_id                String?
-  mpn                     String?
-  ndr_cost                String?
-  unit_price              String?
-  oem                     String?
-  oem_name                String?
-  partner_fee_percentage  String?
-  partner_fee_amount      String?
-  serial_number           String?
-  service_duration        String?
-  ss_part                 String?
-  start_date              String?
-  subscription_term       String?
-  taa_flag                String?
-  td_number               String?
-  unspsc                  String?
-  vendor_line_number      String?
-  vendor_quote_line_item  String?
-  vendor_disti            String?
-  vendor_disti_name       String?
-  months                  String?
-  sub_total               String?
-  total_cost              String?
-  product_name            String?
-  use_line_amount         Boolean  @default(false)
-  term_months             String?
-  term_years              String?
-  term_unit_calc          String?
-  total_cost_to_use       String?
-  lead_time               String?
-  Discount_Class__c       String?
-  Discount_Subclass__c    String?
-  vendor_quote_number         String?
-  manufacturer_product_code   String?
-  vendor_product_code         String?
-  sku                         String?
-  distributor_product_code    String?
-  discount_percentage         String?
-  extended_list               String?
-  esi_price                   String?
-  pricing_method              String?
-  item_category_code          String?
-  ma_flag                     String?
-  gross_profit_percentage     Float?
-  gross_profit                Float?
-  msrp                        String?
-  optional                    Boolean  @default(false)
+  customer_id               String?
+  organization              String?
+  product_id                Int?
+  bundle_id                 Int?
+  adjusted_quantity         String?
+  availability              String?
+  line_amount               String?
+  list_price                String?
+  adjusted_price            String?
+  serial_                   String?
+  pdf_url                   String?
+  eventId                   Int?
+  quote_config_id           Int?
+  subscriptionId            Float?
+  portalId                  Float?
+  occurredAt                Float?
+  subscriptionType          String?
+  attemptNumber             Float?
+  objectId                  Float?
+  changeSource              String?
+  changeFlag                String?
+  appId                     Int?
+  bundle_cost               String?
+  bundle_ext_price          String?
+  bundle_gp                 String?
+  bundle_gp_percentage      String?
+  bundle_msrp               String?
+  bundle_name               String?
+  bundle_rebate             String?
+  bundle_rebate_amount      String?
+  bundle_unit_price         String?
+  clin                      String?
+  contract_fee_percentage   String?
+  contract_fee_amount       String?
+  country_of_origin         String?
+  display_mpn               String?
+  end_date                  String?
+  energy_star_flag          String?
+  eol_date                  String?
+  epeat_flag                String?
+  equivalent_clin           String?
+  excel_bundle_name         String?
+  file_name                 String?
+  gsa_price                 String?
+  model_id                  String?
+  mpn                       String?
+  ndr_cost                  String?
+  unit_price                String?
+  oem                       String?
+  oem_name                  String?
+  partner_fee_percentage    String?
+  partner_fee_amount        String?
+  serial_number             String?
+  service_duration          String?
+  ss_part                   String?
+  start_date                String?
+  subscription_term         String?
+  taa_flag                  String?
+  td_number                 String?
+  unspsc                    String?
+  vendor_line_number        String?
+  vendor_quote_line_item    String?
+  vendor_disti              String?
+  vendor_disti_name         String?
+  months                    String?
+  sub_total                 String?
+  total_cost                String?
+  product_name              String?
+  use_line_amount           Boolean @default(false)
+  term_months               String?
+  term_years                String?
+  term_unit_calc            String?
+  total_cost_to_use         String?
+  lead_time                 String?
+  Discount_Class__c         String?
+  Discount_Subclass__c      String?
+  vendor_quote_number       String?
+  manufacturer_product_code String?
+  vendor_product_code       String?
+  sku                       String?
+  distributor_product_code  String?
+  discount_percentage       String?
+  extended_list             String?
+  esi_price                 String?
+  pricing_method            String?
+  item_category_code        String?
+  ma_flag                   String?
+  gross_profit_percentage   Float?
+  gross_profit              Float?
+  msrp                      String?
+  optional                  Boolean @default(false)
 
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
@@ -480,7 +490,7 @@ model LineItem {
 }
 
 model Profitabilty_line_items {
-  id               String     @id @default(cuid())
+  id               String  @id @default(cuid())
   userId           String
   quote_id         String?
   quote_file_id    String?
@@ -507,101 +517,101 @@ model Profitabilty_line_items {
   location         String?
   notes            String?
   extraFields      Json?
-  isDeleted        Boolean    @default(false)
-  is_Verifed       Boolean    @default(false)
+  isDeleted        Boolean @default(false)
+  is_Verifed       Boolean @default(false)
 
   // Extended fields
-  customer_id             String?
-  organization            String?
-  product_id              Int?
-  bundle_id               Int?
-  adjusted_quantity       String?
-  availability            String?
-  line_amount             String?
-  list_price              String?
-  adjusted_price          String?
-  serial_                 String?
-  pdf_url                 String?
-  eventId                 Int?
-  quote_config_id         Int?
-  subscriptionId          Float?
-  portalId                Float?
-  occurredAt              Float?
-  subscriptionType        String?
-  attemptNumber           Float?
-  objectId                Float?
-  changeSource            String?
-  changeFlag              String?
-  appId                   Int?
-  bundle_cost             String?
-  bundle_ext_price        String?
-  bundle_gp               String?
-  bundle_gp_percentage    String?
-  bundle_msrp             String?
-  bundle_name             String?
-  bundle_rebate           String?
-  bundle_rebate_amount    String?
-  bundle_unit_price       String?
-  clin                    String?
-  contract_fee_percentage String?
-  contract_fee_amount     String?
-  country_of_origin       String?
-  display_mpn             String?
-  end_date                String?
-  energy_star_flag        String?
-  eol_date                String?
-  epeat_flag              String?
-  equivalent_clin         String?
-  excel_bundle_name       String?
-  file_name               String?
-  gsa_price               String?
-  model_id                String?
-  mpn                     String?
-  ndr_cost                String?
-  unit_price              String?
-  oem                     String?
-  oem_name                String?
-  partner_fee_percentage  String?
-  partner_fee_amount      String?
-  serial_number           String?
-  service_duration        String?
-  ss_part                 String?
-  start_date              String?
-  subscription_term       String?
-  taa_flag                String?
-  td_number               String?
-  unspsc                  String?
-  vendor_line_number      String?
-  vendor_quote_line_item  String?
-  vendor_disti            String?
-  vendor_disti_name       String?
-  months                  String?
-  sub_total               String?
-  total_cost              String?
-  product_name            String?
-  use_line_amount         Boolean  @default(false)
-  term_months             String?
-  term_years              String?
-  term_unit_calc          String?
-  total_cost_to_use       String?
-  lead_time               String?
-  Discount_Class__c       String?
-  Discount_Subclass__c    String?
-  vendor_quote_number         String?
-  manufacturer_product_code   String?
-  vendor_product_code         String?
-  sku                         String?
-  distributor_product_code    String?
-  discount_percentage         String?
-  extended_list               String?
-  esi_price                   String?
-  pricing_method              String?
-  item_category_code          String?
-  ma_flag                     String?
-  gross_profit_percentage     Float?
-  gross_profit                Float?
-  msrp                        String?
-  optional                    Boolean  @default(false)
+  customer_id               String?
+  organization              String?
+  product_id                Int?
+  bundle_id                 Int?
+  adjusted_quantity         String?
+  availability              String?
+  line_amount               String?
+  list_price                String?
+  adjusted_price            String?
+  serial_                   String?
+  pdf_url                   String?
+  eventId                   Int?
+  quote_config_id           Int?
+  subscriptionId            Float?
+  portalId                  Float?
+  occurredAt                Float?
+  subscriptionType          String?
+  attemptNumber             Float?
+  objectId                  Float?
+  changeSource              String?
+  changeFlag                String?
+  appId                     Int?
+  bundle_cost               String?
+  bundle_ext_price          String?
+  bundle_gp                 String?
+  bundle_gp_percentage      String?
+  bundle_msrp               String?
+  bundle_name               String?
+  bundle_rebate             String?
+  bundle_rebate_amount      String?
+  bundle_unit_price         String?
+  clin                      String?
+  contract_fee_percentage   String?
+  contract_fee_amount       String?
+  country_of_origin         String?
+  display_mpn               String?
+  end_date                  String?
+  energy_star_flag          String?
+  eol_date                  String?
+  epeat_flag                String?
+  equivalent_clin           String?
+  excel_bundle_name         String?
+  file_name                 String?
+  gsa_price                 String?
+  model_id                  String?
+  mpn                       String?
+  ndr_cost                  String?
+  unit_price                String?
+  oem                       String?
+  oem_name                  String?
+  partner_fee_percentage    String?
+  partner_fee_amount        String?
+  serial_number             String?
+  service_duration          String?
+  ss_part                   String?
+  start_date                String?
+  subscription_term         String?
+  taa_flag                  String?
+  td_number                 String?
+  unspsc                    String?
+  vendor_line_number        String?
+  vendor_quote_line_item    String?
+  vendor_disti              String?
+  vendor_disti_name         String?
+  months                    String?
+  sub_total                 String?
+  total_cost                String?
+  product_name              String?
+  use_line_amount           Boolean @default(false)
+  term_months               String?
+  term_years                String?
+  term_unit_calc            String?
+  total_cost_to_use         String?
+  lead_time                 String?
+  Discount_Class__c         String?
+  Discount_Subclass__c      String?
+  vendor_quote_number       String?
+  manufacturer_product_code String?
+  vendor_product_code       String?
+  sku                       String?
+  distributor_product_code  String?
+  discount_percentage       String?
+  extended_list             String?
+  esi_price                 String?
+  pricing_method            String?
+  item_category_code        String?
+  ma_flag                   String?
+  gross_profit_percentage   Float?
+  gross_profit              Float?
+  msrp                      String?
+  optional                  Boolean @default(false)
 
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
@@ -627,12 +637,12 @@ model Profitabilty_line_items {
 }
 
 model Product {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   name        String?
   description String?
-  isDeleted   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   lineItems               LineItem[]
   profitabilty_line_items Profitabilty_line_items[]
@@ -641,12 +651,12 @@ model Product {
 }
 
 model Bundle {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   name        String?
   description String?
-  isDeleted   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   lineItems               LineItem[]
   profitabilty_line_items Profitabilty_line_items[]
@@ -655,39 +665,39 @@ model Bundle {
 }
 
 model QuoteConfigurationModel {
-  id          Int       @id @default(autoincrement())
-  name        String?
-  config      Json?
-  isDeleted   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        Int      @id @default(autoincrement())
+  name      String?
+  config    Json?
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  lineItems               LineItem[]                  @relation("LineItemQuoteConfig")
-  profitabilty_line_items Profitabilty_line_items[]   @relation("ProfitabiltyLineItemQuoteConfig")
+  lineItems               LineItem[]                @relation("LineItemQuoteConfig")
+  profitabilty_line_items Profitabilty_line_items[] @relation("ProfitabiltyLineItemQuoteConfig")
 
   @@index([isDeleted])
 }
 
 //customer schema
 model Customer {
-  id            String        @id @default(cuid())
-  userId        String
-  name          String?
-  currency      String?
-  website       String?
-  industry      String?
-  profileImage  String?
-  organization  String?
-  isDeleted     Boolean       @default(false)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                      String                    @id @default(cuid())
+  userId                  String
+  name                    String?
+  currency                String?
+  website                 String?
+  industry                String?
+  profileImage            String?
+  organization            String?
+  isDeleted               Boolean                   @default(false)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  user                    User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   opportunities           Opportunity[]
   addresses               Address[]
   contacts                UserContact[]
   quotes                  Quote[]
-  lineItems               LineItem[]                  @relation("LineItemCustomer")
-  profitabilty_line_items Profitabilty_line_items[]   @relation("ProfitabiltyLineItemCustomer")
+  lineItems               LineItem[]                @relation("LineItemCustomer")
+  profitabilty_line_items Profitabilty_line_items[] @relation("ProfitabiltyLineItemCustomer")
 
   @@index([userId])
   @@index([isDeleted])
@@ -755,6 +765,116 @@ model Address {
   @@index([userId, type])
 }
 
+model SavedLocation {
+  id         String   @id @default(cuid())
+  userId     String
+  label      String?
+  latitude   Float
+  longitude  Float
+  shareToken String   @unique @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([shareToken])
+}
+
+model Meeting {
+  id String @id @default(cuid())
+
+  title       String
+  description String?
+
+  startTime DateTime
+  endTime   DateTime
+
+  location   String?
+  meetingUrl String?
+
+  status      MeetingStatus   @default(SCHEDULED)
+  priority    MeetingPriority @default(MEDIUM)
+  meetingType MeetingType     @default(INTERNAL)
+  department  String?
+
+  organizerId String
+  organizer   User   @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: Restrict)
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  participants MeetingParticipant[]
+
+  // --- Recurrence support ---
+  recurrenceRule       String? // iCal RRULE string, e.g. "FREQ=WEEKLY;BYDAY=MO,WE"
+  recurrenceEndDate    DateTime?
+  parentMeetingId      String?
+  parentMeeting        Meeting?  @relation("RecurrenceInstances", fields: [parentMeetingId], references: [id], onDelete: Cascade)
+  recurringInstances   Meeting[] @relation("RecurrenceInstances")
+  isRecurringException Boolean   @default(false) // true if this instance was individually edited
+
+  reminderSentAt DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  notifications Notification[]
+
+  @@unique([parentMeetingId, startTime])
+  @@index([organizerId])
+  @@index([organizationId])
+  @@index([startTime])
+  @@index([status, startTime])
+  @@index([department])
+  @@index([status, department, startTime])
+  @@index([organizerId, isDeleted, startTime])
+  @@index([parentMeetingId])
+}
+
+model MeetingParticipant {
+  id String @id @default(cuid())
+
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  responseStatus ResponseStatus @default(PENDING)
+
+  joinedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([meetingId, userId])
+  @@index([meetingId])
+  @@index([userId])
+}
+
+model Notification {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  title String
+
+  message String
+
+  type NotificationType
+
+  isRead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
 enum AddressType {
   SHIPPING
   BILLING
@@ -794,4 +914,35 @@ enum QuoteStatus {
   ACCEPTED
   REJECTED
   EXPIRED
+}
+
+enum ResponseStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  TENTATIVE
+}
+
+enum NotificationType {
+  INVITATION
+  REMINDER
+  UPDATE
+  CANCELLED
+}
+
+enum MeetingPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum MeetingType {
+  INTERNAL
+  EXTERNAL
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
 }

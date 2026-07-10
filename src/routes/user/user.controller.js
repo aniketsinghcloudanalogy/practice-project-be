@@ -22,6 +22,7 @@ const {
   updateUserActiveStatus,
   findAdminsByRole,
   findAllUsers,
+  findActiveUsersDirectory
 } = require('./helper');
 
 const AUTH_PROVIDER = {
@@ -414,6 +415,15 @@ const toggleUserActive = async (req, res) => {
   }
 };
 
+const listUserDirectory = async (req, res) => {
+  try {
+    const users = await findActiveUsersDirectory();
+    return res.status(200).json(new ApiResponse(200, 'User directory fetched successfully', users));
+  } catch (err) {
+    return res.status(err.status || 500).json(new ApiResponse(err.status || 500, err.message || 'Internal Server Error', null));
+  }
+};
+
 module.exports = {
   signup,
   login,
@@ -427,4 +437,5 @@ module.exports = {
   listAdmins,
   listUsers,
   toggleUserActive,
+  listUserDirectory
 };
